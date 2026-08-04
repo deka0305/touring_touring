@@ -1,0 +1,40 @@
+{
+  "project_info": {
+    "project_number": "801404756475",
+    "firebase_url": "https://api-database-b4568-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "api-database-b4568",
+    "storage_bucket": "api-database-b4568.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:801404756475:android:e12a85aa5117b9a20bab5e",
+        "android_client_info": {
+          "package_name": "com.example.touring_touring"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "801404756475-02r3u0jf6l4kqs9p9dn2qplnpc8i4usu.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDV_Ii86uipjxR6NiD-z3pbq9ZSHnN_I6c"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "801404756475-02r3u0jf6l4kqs9p9dn2qplnpc8i4usu.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -1,0 +1,112 @@
+{
+  "rules": {
+    "groups": {
+      "$gid": {
+        ".read": "auth != null && data.child('members').child(auth.uid).exists()",
+
+        // Road captain boleh menghapus grupnya sendiri.
+        //
+        // Sengaja dibatasi HANYA penghapusan lewat !newData.exists(). Kalau
+        // .write di sini dibuat umum, izinnya menular ke seluruh anak dan RC
+        // jadi bisa menulis live/{uid-orang-lain} — alias memalsukan posisi
+        // anggota. Jaminan "tidak ada yang bisa memalsukan posisi orang lain"
+        // harus berlaku untuk semua orang, termasuk pemilik grup.
+        //
+        // Anggota biasa tidak menghapus grup; dia hanya menghapus dirinya di
+        // members/{uid-nya}, yang diizinkan di bawah.
+        ".write": "auth != null && !newData.exists() && data.child('meta/rcUid').val() === auth.uid",
+
+        "meta": {
+          ".write": "auth != null && ((!data.exists() && newData.child('rcUid').val() === auth.uid) || data.child('rcUid').val() === auth.uid)",
+          "displayId": { ".validate": "newData.isString() && newData.val().length <= 12" },
+          "name": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 60" },
+          "club": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 60" },
+          "whenMs": { ".validate": "newData.isNumber()" },
+          "mode": { ".validate": "newData.isString() && (newData.val() === 'motor' || newData.val() === 'mobil' || newData.val() === 'sepeda' || newData.val() === 'lari')" },
+          "createdMs": { ".validate": "newData.isNumber()" },
+          "rcUid": { ".validate": "newData.isString()" },
+          "closedMs": { ".validate": "newData.isNumber() || !newData.exists()" },
+          "$other": { ".validate": false }
+        },
+
+        "stops": {
+          ".write": "auth != null && root.child('groups').child($gid).child('meta/rcUid').val() === auth.uid",
+          "$i": {
+            "l": { ".validate": "newData.isString() && newData.val().length <= 28" },
+            "lat": { ".validate": "newData.isNumber() && newData.val() >= -90 && newData.val() <= 90" },
+            "lng": { ".validate": "newData.isNumber() && newData.val() >= -180 && newData.val() <= 180" },
+            "$other": { ".validate": false }
+          }
+        },
+
+        "route": {
+          ".write": "auth != null && root.child('groups').child($gid).child('meta/rcUid').val() === auth.uid",
+          "km": { ".validate": "newData.isNumber() && newData.val() >= 0" },
+          "minutes": { ".validate": "newData.isNumber() && newData.val() >= 0" },
+          "geom": { ".validate": "newData.isString() && newData.val().length <= 200000" },
+          "idx": { "$i": { ".validate": "newData.isNumber()" } },
+          "$other": { ".validate": false }
+        },
+
+        // Daftar cekal. Tanpa ini, "keluarkan anggota" tidak bisa ditegakkan:
+        // kode gabung masih dia pegang, dan aturan members/$uid mengizinkan
+        // siapa pun mendaftarkan dirinya sendiri — jadi dia tinggal masuk lagi.
+        // Hanya road captain yang boleh mengubahnya.
+        "banned": {
+          ".write": "auth != null && root.child('groups').child($gid).child('meta/rcUid').val() === auth.uid",
+          "$uid": { ".validate": "newData.isBoolean()" }
+        },
+
+        "members": {
+          "$uid": {
+            // Cabang "daftarkan diri sendiri" wajib memeriksa daftar cekal.
+            // Cabang road captain tidak: dia yang memegang daftar itu, dan dia
+            // perlu bisa memasukkan kembali orang yang tadinya dicekal.
+            ".write": "auth != null && (($uid === auth.uid && !root.child('groups').child($gid).child('banned').child(auth.uid).exists()) || root.child('groups').child($gid).child('meta/rcUid').val() === auth.uid)",
+            "name": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 40" },
+            "plat": { ".validate": "newData.isString() && newData.val().length <= 15" },
+            "role": { ".validate": "(newData.val() === 'RIDER' && $uid === auth.uid) || root.child('groups').child($gid).child('meta/rcUid').val() === auth.uid" },
+            "joinedMs": { ".validate": "newData.isNumber()" },
+            "$other": { ".validate": false }
+          }
+        },
+
+        "live": {
+          "$uid": {
+            ".write": "auth != null && $uid === auth.uid && root.child('groups').child($gid).child('members').child(auth.uid).exists()",
+            "lat": { ".validate": "newData.isNumber() && newData.val() >= -90 && newData.val() <= 90" },
+            "lng": { ".validate": "newData.isNumber() && newData.val() >= -180 && newData.val() <= 180" },
+            "s": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 300" },
+            "b": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100" },
+            "h": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() < 360" },
+            "t": { ".validate": "newData.isNumber()" },
+            "online": { ".validate": "newData.isBoolean()" },
+            "$other": { ".validate": false }
+          }
+        },
+
+        "sos": {
+          "$uid": {
+            ".write": "auth != null && ($uid === auth.uid || root.child('groups').child($gid).child('meta/rcUid').val() === auth.uid)"
+          }
+        },
+
+        "log": {
+          "$id": {
+            ".write": "auth != null && root.child('groups').child($gid).child('members').child(auth.uid).exists()"
+          }
+        },
+
+        "track": {
+          "$uid": {
+            ".write": "auth != null && $uid === auth.uid && root.child('groups').child($gid).child('members').child(auth.uid).exists()"
+          }
+        },
+
+        "$other": { ".validate": false }
+      }
+    },
+
+    "$other": { ".read": false, ".write": false }
+  }
+}
