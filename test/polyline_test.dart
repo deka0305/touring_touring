@@ -1,7 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:touring_touring/data.dart';
 import 'package:touring_touring/polyline.dart';
+
+import 'fixture.dart';
 
 void main() {
   test('fixture resmi Google: encode dan decode cocok persis', () {
@@ -24,7 +25,7 @@ void main() {
   });
 
   test('bolak-balik rute demo utuh dalam ± 1 m dan jauh lebih kecil', () {
-    final route = buildDemoGroup().geometry;
+    final route = ujiGroup().geometry;
     final code = encodePolyline(route);
     final back = decodePolyline(code);
 

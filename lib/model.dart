@@ -15,7 +15,8 @@ const kBad = 0xFFFF3B30;
 const _dist = Distance();
 
 /// Satu tujuan yang dipilih pengguna. Ini sumber kebenaran rute — geometri
-/// jalan cuma hasil turunan dari OSRM, jadi kode bagikan cukup memuat stop.
+/// jalan cuma hasil turunan dari mesin rute, jadi kode bagikan cukup memuat
+/// stop.
 class Stop {
   Stop(this.label, this.at);
   String label;
@@ -110,7 +111,7 @@ class Member {
   String role;
 
   /// uid Firebase pemilik baris ini. Null untuk anggota yang hanya ada di HP
-  /// ini (grup demo, atau grup yang dibuat sebelum tersambung ke server).
+  /// ini, mis. grup yang dibuat sebelum tersambung ke server.
   String? uid;
 
   Map<String, dynamic> toJson() =>
@@ -139,7 +140,6 @@ class TripGroup {
     this.minutes = 0,
     this.mode = TripMode.motor,
     List<Member>? members,
-    this.demo = false,
   })  : stops = stops ?? [],
         geometry = geometry ?? [],
         stopIndices = stopIndices ?? [],
@@ -154,7 +154,7 @@ class TripGroup {
   /// Kunci grup di server: 16 karakter acak, sekaligus rahasianya. Yang
   /// memegangnya boleh masuk — modelnya seperti tautan Google Meet, karena
   /// Security Rules tidak bisa membatasi laju percobaan tebakan.
-  /// Null berarti grup ini hanya ada di HP ini (grup demo, atau dibuat offline).
+  /// Null berarti grup ini hanya ada di HP ini, mis. dibuat saat offline.
   String? gid;
 
   /// uid pemilik grup. Hanya dia yang boleh mengubah rute dan peran anggota.
@@ -164,7 +164,7 @@ class TripGroup {
 
   List<Stop> stops;
 
-  /// Geometri jalan dari OSRM. Kosong berarti rute belum disusun.
+  /// Geometri jalan dari mesin rute. Kosong berarti rute belum disusun.
   List<LatLng> geometry;
   List<int> stopIndices;
   double km;
@@ -175,9 +175,6 @@ class TripGroup {
   TripMode mode;
 
   List<Member> members;
-
-  /// Grup contoh bawaan — satu-satunya yang memperagakan pelacakan live.
-  final bool demo;
 
   bool get hasRoute => geometry.length >= 2 && stopIndices.length == stops.length;
 
@@ -217,8 +214,6 @@ class TripGroup {
   /// `trip.groups` membuat referensi mereka jadi yatim — dulu itu bikin layar
   /// detail grup jadi hitam blank begitu data server masuk. Identitas objek
   /// dijaga tetap, isinya saja yang menyusul.
-  ///
-  /// [demo] tidak ikut: grup demo tidak pernah ada di server.
   void applyFrom(TripGroup other) {
     id = other.id;
     gid = other.gid;
@@ -251,7 +246,6 @@ class TripGroup {
         'min': minutes,
         'mode': mode.key,
         'members': [for (final m in members) m.toJson()],
-        'demo': demo,
       };
 
   static TripGroup fromJson(Map<String, dynamic> j) => TripGroup(
@@ -274,7 +268,6 @@ class TripGroup {
           for (final m in (j['members'] as List))
             Member.fromJson(m as Map<String, dynamic>),
         ],
-        demo: j['demo'] as bool? ?? false,
       );
 
   /// Kode gabung. Bidang dipisah `|`, waktu jadi menit-epoch, lalu di-base64url
@@ -475,13 +468,12 @@ class Rider {
     required this.p,
     required this.v,
     required this.batt,
-    required this.stopUntil,
     this.uid,
   });
 
   final int id;
 
-  /// uid Firebase pemiliknya. Null untuk rider simulasi. Dipakai untuk
+  /// uid Firebase pemiliknya. Dipakai untuk
   /// mencocokkan dengan posisi dari server — jangan cocokkan lewat nama,
   /// dua anggota bisa bernama sama.
   final String? uid;
@@ -498,15 +490,13 @@ class Rider {
   /// Null berarti HP-nya tidak melaporkan baterai — tampilkan "—", jangan 0%.
   int? batt;
 
-  int stopUntil;
-
-  // Turunan, diisi ulang tiap tick.
+  // Turunan, diisi ulang tiap kiriman posisi dari server.
   RiderStatus status = RiderStatus.aman;
   double behindKm = 0;
   LatLng pos = const LatLng(0, 0);
   double head = 0;
 
-  /// Sejak kapan posisinya tidak diperbarui. Null untuk rider simulasi.
+  /// Sejak kapan posisinya tidak diperbarui.
   Duration? staleness;
 }
 

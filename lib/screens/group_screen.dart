@@ -73,12 +73,10 @@ class GroupScreen extends StatelessWidget {
                   if (trip.amRc(g))
                     const PopupMenuItem(
                         value: 'edit', child: Text('Ubah detail')),
-                  if (!g.demo)
-                    PopupMenuItem(
-                        value: 'delete',
-                        child: Text(trip.amRc(g)
-                            ? 'Hapus grup'
-                            : 'Keluar dari grup')),
+                  PopupMenuItem(
+                      value: 'delete',
+                      child: Text(
+                          trip.amRc(g) ? 'Hapus grup' : 'Keluar dari grup')),
                 ],
               ),
             ],

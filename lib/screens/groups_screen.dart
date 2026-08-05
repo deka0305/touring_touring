@@ -53,7 +53,7 @@ class GroupsScreen extends StatelessWidget {
                 icon: Icons.download_outlined,
                 label: 'Gabung pakai kode',
                 primary: false,
-                onTap: () => _import(context),
+                onTap: () => joinByCode(context),
               ),
             ),
           ],
@@ -81,157 +81,16 @@ class GroupsScreen extends StatelessWidget {
   }
 
   Future<void> _create(BuildContext context) async {
-    final created = await Navigator.of(context).push<TripGroup>(
+    final nav = Navigator.of(context);
+    final created = await nav.push<TripGroup>(
       MaterialPageRoute(builder: (_) => const NewGroupScreen()),
     );
-    if (created == null || !context.mounted) return;
+    if (created == null) return;
     // Langsung ke detail grup: dari sini rute dan anggota diisi.
-    await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => GroupScreen(group: created)),
-    );
+    await nav
+        .push(MaterialPageRoute(builder: (_) => GroupScreen(group: created)));
   }
 
-  Future<void> _import(BuildContext context) async {
-    var code = '';
-    String? error;
-
-    final group = await showDialog<TripGroup>(
-      context: context,
-      builder: (c) => StatefulBuilder(
-        builder: (c, setLocal) => AlertDialog(
-          title: const Text('Gabung grup'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Tempel kode gabung yang dikirim road captain lewat WhatsApp.',
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                onChanged: (v) => code = v,
-                autofocus: true,
-                maxLines: 3,
-                minLines: 3,
-                decoration: InputDecoration(
-                  hintText: 'MnxHUkMtMjAyNnxCcm9tby...',
-                  errorText: error,
-                  border: const OutlineInputBorder(),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(c), child: const Text('Batal')),
-            TextButton(
-              onPressed: () {
-                try {
-                  Navigator.pop(c, TripGroup.fromShareCode(code));
-                } on FormatException catch (e) {
-                  setLocal(() => error = e.message);
-                }
-              },
-              child: const Text('Gabung'),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (group == null || !context.mounted) return;
-
-    // Grup di server: tanya identitas, lalu daftarkan diri sungguhan supaya
-    // road captain melihatnya. Grup dari kode lama hanya disalin ke HP ini.
-    Member? me;
-    if (group.onCloud) {
-      me = await _askIdentity(context, group);
-      if (me == null || !context.mounted) return;
-    }
-
-    try {
-      await trip.importGroup(group, you: me);
-    } on StateError catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.message)));
-      }
-      return;
-    }
-    if (!context.mounted) return;
-    // Ambil grup yang sudah terpasang: importGroup mengganti objeknya dengan
-    // versi dari server, lengkap dengan rute dan daftar anggota.
-    final joined = trip.groups.firstWhere(
-        (e) => e.gid == group.gid || e.id == group.id,
-        orElse: () => group);
-    await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => GroupScreen(group: joined)),
-    );
-  }
-
-  /// Siapa yang bergabung. Perannya dipaksa Rider — Security Rules menolak
-  /// orang mengangkat dirinya jadi road captain, jadi jangan ditawarkan.
-  Future<Member?> _askIdentity(BuildContext context, TripGroup g) {
-    var name = '';
-    var plat = '';
-    final form = GlobalKey<FormState>();
-
-    return showDialog<Member>(
-      context: context,
-      builder: (c) => AlertDialog(
-        title: Text('Gabung "${g.name}"'),
-        content: Form(
-          key: form,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('${g.club} · ${fmtWhen(g.when)}'),
-              const SizedBox(height: 4),
-              const Text(
-                'Namamu akan terlihat oleh road captain dan anggota lain.',
-                style: TextStyle(fontSize: 12),
-              ),
-              const SizedBox(height: 14),
-              TextFormField(
-                onChanged: (v) => name = v,
-                autofocus: true,
-                textCapitalization: TextCapitalization.words,
-                decoration: const InputDecoration(
-                    labelText: 'Nama kamu', hintText: 'mis. Rizky Nugroho'),
-                validator: (v) => (v == null || v.trim().length < 2)
-                    ? 'Nama belum diisi.'
-                    : null,
-              ),
-              const SizedBox(height: 10),
-              TextFormField(
-                onChanged: (v) => plat = v,
-                textCapitalization: TextCapitalization.characters,
-                decoration: const InputDecoration(
-                    labelText: 'Nomor polisi', hintText: 'mis. N 1234 AB'),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(c), child: const Text('Batal')),
-          TextButton(
-            onPressed: () {
-              if (!form.currentState!.validate()) return;
-              Navigator.pop(
-                  c,
-                  Member(
-                    name: name.trim(),
-                    plat: plat.trim().toUpperCase(),
-                    role: 'RIDER',
-                  ));
-            },
-            child: const Text('Gabung'),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 class _BigAction extends StatelessWidget {
@@ -579,4 +438,147 @@ class _Field extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Gabung grup dengan menempel kode. Fungsi tingkat atas supaya dipakai baik
+/// dari tab Grup maupun dari layar awal yang belum punya grup — satu alur, satu
+/// tempat memperbaikinya.
+Future<void> joinByCode(BuildContext context) async {
+  // Diambil sebelum await: layar awal dibongkar begitu grupnya masuk, jadi
+  // context-nya tidak lagi sah untuk push maupun SnackBar.
+  final nav = Navigator.of(context);
+  final pesan = ScaffoldMessenger.of(context);
+  var code = '';
+  String? error;
+
+  final group = await showDialog<TripGroup>(
+    context: context,
+    builder: (c) => StatefulBuilder(
+      builder: (c, setLocal) => AlertDialog(
+        title: const Text('Gabung grup'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Tempel kode gabung yang dikirim road captain lewat WhatsApp.',
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              onChanged: (v) => code = v,
+              autofocus: true,
+              maxLines: 3,
+              minLines: 3,
+              decoration: InputDecoration(
+                hintText: 'MnxHUkMtMjAyNnxCcm9tby...',
+                errorText: error,
+                border: const OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(c), child: const Text('Batal')),
+          TextButton(
+            onPressed: () {
+              try {
+                Navigator.pop(c, TripGroup.fromShareCode(code));
+              } on FormatException catch (e) {
+                setLocal(() => error = e.message);
+              }
+            },
+            child: const Text('Gabung'),
+          ),
+        ],
+      ),
+    ),
+  );
+  if (group == null || !context.mounted) return;
+
+  // Grup di server: tanya identitas, lalu daftarkan diri sungguhan supaya
+  // road captain melihatnya. Grup dari kode lama hanya disalin ke HP ini.
+  Member? me;
+  if (group.onCloud) {
+    me = await _askIdentity(context, group);
+    if (me == null) return;
+  }
+
+  try {
+    await trip.importGroup(group, you: me);
+  } on StateError catch (e) {
+    pesan.showSnackBar(SnackBar(content: Text(e.message)));
+    return;
+  }
+  // Ambil grup yang sudah terpasang: importGroup mengganti objeknya dengan
+  // versi dari server, lengkap dengan rute dan daftar anggota.
+  final joined = trip.groups.firstWhere(
+      (e) => e.gid == group.gid || e.id == group.id,
+      orElse: () => group);
+  await nav.push(MaterialPageRoute(builder: (_) => GroupScreen(group: joined)));
+}
+
+/// Siapa yang bergabung. Perannya dipaksa Rider — Security Rules menolak orang
+/// mengangkat dirinya jadi road captain, jadi jangan ditawarkan.
+Future<Member?> _askIdentity(BuildContext context, TripGroup g) {
+  var name = '';
+  var plat = '';
+  final form = GlobalKey<FormState>();
+
+  return showDialog<Member>(
+    context: context,
+    builder: (c) => AlertDialog(
+      title: Text('Gabung "${g.name}"'),
+      content: Form(
+        key: form,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('${g.club} · ${fmtWhen(g.when)}'),
+            const SizedBox(height: 4),
+            const Text(
+              'Namamu akan terlihat oleh road captain dan anggota lain.',
+              style: TextStyle(fontSize: 12),
+            ),
+            const SizedBox(height: 14),
+            TextFormField(
+              onChanged: (v) => name = v,
+              autofocus: true,
+              textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(
+                  labelText: 'Nama kamu', hintText: 'mis. Rizky Nugroho'),
+              validator: (v) => (v == null || v.trim().length < 2)
+                  ? 'Nama belum diisi.'
+                  : null,
+            ),
+            const SizedBox(height: 10),
+            TextFormField(
+              onChanged: (v) => plat = v,
+              textCapitalization: TextCapitalization.characters,
+              decoration: const InputDecoration(
+                  labelText: 'Nomor polisi', hintText: 'mis. N 1234 AB'),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.pop(c), child: const Text('Batal')),
+        TextButton(
+          onPressed: () {
+            if (!form.currentState!.validate()) return;
+            Navigator.pop(
+                c,
+                Member(
+                  name: name.trim(),
+                  plat: plat.trim().toUpperCase(),
+                  role: 'RIDER',
+                ));
+          },
+          child: const Text('Gabung'),
+        ),
+      ],
+    ),
+  );
 }

@@ -9,6 +9,8 @@ import 'package:touring_touring/screens/help_screen.dart';
 import 'package:touring_touring/screens/route_edit_screen.dart';
 import 'package:touring_touring/theme.dart';
 
+import 'fixture.dart';
+
 /// Setiap layar harus muat di layar ponsel 390×844 tanpa overflow, di tema
 /// gelap maupun terang, untuk grup demo (live) dan grup nyata (tanpa live).
 void main() {
@@ -16,6 +18,9 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     // trip itu global: init() ulang mengembalikannya ke keadaan awal.
     await trip.init();
+    // Pemasangan baru tidak punya grup, dan Shell menampilkan onboarding untuk
+    // itu. Test tab butuh satu grup berute supaya shell-nya terbangun.
+    pakai(trip, ujiGroup());
   });
 
   // Matikan timer simulasi, kalau tidak test dianggap membocorkan timer.
@@ -109,7 +114,7 @@ void main() {
     expect(find.text('Sudah Ada Rute'), findsWidgets);
   });
 
-  testWidgets('grup demo: semua rider terlacak, tidak ada bagian sisa',
+  testWidgets('tab Tim: anggota tanpa posisi tetap terdaftar, tidak lenyap',
       (tester) async {
     phone(tester);
     await tester.pumpWidget(const TouringApp());
@@ -117,10 +122,10 @@ void main() {
     await tester.tap(find.text('TIM'));
     await tester.pump(const Duration(milliseconds: 100));
 
-    // Simulasi memberi posisi ke semua anggota, jadi tidak ada yang tersisa.
-    expect(trip.untracked, isEmpty);
-    expect(find.textContaining('TERLACAK · 50'), findsOne);
-    expect(find.textContaining('BELUM TERLACAK'), findsNothing);
+    // Belum ada posisi dari server, jadi daftar anggota yang tampil — bukan
+    // daftar rider live, dan bukan layar kosong.
+    expect(trip.live, isFalse);
+    expect(find.text('Bagas Pratama'), findsOne);
     expect(tester.takeException(), isNull);
   });
 

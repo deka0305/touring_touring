@@ -87,85 +87,6 @@ extension RiderKm on Rider {
   double get km => p * totalKm;
 }
 
-// ── Grup demo ───────────────────────────────────────────────────────────────
-
-const _demoNames = <String>[
-  'Bagas Pratama', 'Rizky Nugroho', 'Dimas Saputra', 'Yoga Ardiansyah',
-  'Fajar Setiawan', 'Hendra Wijaya', 'Arif Kurniawan', 'Galih Permana',
-  'Bayu Santoso', 'Ilham Maulana', 'Reza Fauzi', 'Doni Hermawan',
-  'Wahyu Utomo', 'Andre Saputro', 'Teguh Prasetyo', 'Eko Widodo',
-  'Rangga Adiputra', 'Sandi Firmansyah', 'Aji Nurcahyo', 'Panca Wibowo',
-  'Gilang Ramadhan', 'Toni Sugiarto', 'Bram Alfarizi', 'Cahyo Purnomo',
-  'Deni Iskandar', 'Farid Hakim', 'Gunawan Riyadi', 'Hafiz Alamsyah',
-  'Irfan Maulida', 'Joko Susilo', 'Krisna Dewa', 'Lutfi Ananda',
-  'Miko Handoyo', 'Nanda Prakoso', 'Okto Damanik', 'Putra Sanjaya',
-  'Qomar Hidayat', 'Ridho Alfian', 'Surya Mahendra', 'Tomi Rahardjo',
-  'Ucok Simbolon', 'Vino Adyatma', 'Wisnu Baskara', 'Xaverius Ola',
-  'Yusuf Arkan', 'Zaki Ramadhan', 'Ade Nurhalim', 'Beni Kusuma',
-  'Candra Wirawan', 'Dwi Anggoro',
-];
-
-/// Malang – Tumpang – Gubugklakah – Ngadas – Jemplang – Penanjakan.
-final _demoGeometry = <LatLng>[
-  const LatLng(-7.9797, 112.6304), const LatLng(-7.9866, 112.6520),
-  const LatLng(-7.9930, 112.6720), const LatLng(-8.0010, 112.6950),
-  const LatLng(-8.0092, 112.7180), const LatLng(-8.0170, 112.7380),
-  const LatLng(-8.0245, 112.7600), const LatLng(-8.0290, 112.7800),
-  const LatLng(-8.0325, 112.8060), const LatLng(-8.0330, 112.8300),
-  const LatLng(-8.0295, 112.8520), const LatLng(-8.0260, 112.8700),
-  const LatLng(-8.0312, 112.8880), const LatLng(-8.0350, 112.9020),
-  const LatLng(-8.0140, 112.9200), const LatLng(-7.9990, 112.9280),
-  const LatLng(-7.9770, 112.9360), const LatLng(-7.9560, 112.9420),
-  const LatLng(-7.9425, 112.9530),
-];
-
-const _demoStopIndices = [0, 4, 7, 13, 18];
-const _demoStopLabels = [
-  'Titik Kumpul Malang',
-  'Rest Area Tumpang',
-  'SPBU Gubugklakah',
-  'Jemplang',
-  'Finish · Penanjakan',
-];
-
-const demoGroupId = 'GRC-2026';
-
-TripGroup buildDemoGroup() {
-  var km = 0.0;
-  for (var i = 0; i < _demoGeometry.length - 1; i++) {
-    km += _dist.as(LengthUnit.Kilometer, _demoGeometry[i], _demoGeometry[i + 1]);
-  }
-  return TripGroup(
-    id: demoGroupId,
-    name: 'Bromo Etape 2 (contoh)',
-    club: 'Garuda Rider Club',
-    when: DateTime(2026, 8, 3, 13, 30),
-    stops: [
-      for (var i = 0; i < _demoStopIndices.length; i++)
-        Stop(_demoStopLabels[i], _demoGeometry[_demoStopIndices[i]]),
-    ],
-    geometry: List.of(_demoGeometry),
-    stopIndices: List.of(_demoStopIndices),
-    km: km,
-    minutes: (km / 32 * 60).round(),
-    members: [
-      for (var i = 0; i < _demoNames.length; i++)
-        Member(
-          name: _demoNames[i],
-          plat: 'N ${1000 + i * 37} ${const ['AB', 'CD', 'GH', 'KL', 'ZR'][i % 5]}',
-          role: i == 0
-              ? 'RC'
-              : i == _demoNames.length - 1
-                  ? 'SWP'
-                  : i % 12 == 0
-                      ? 'MRSHL'
-                      : 'RIDER',
-        ),
-    ],
-    demo: true,
-  );
-}
-
 // ── State ───────────────────────────────────────────────────────────────────
 
 /// Satu-satunya sumber state. Global [trip] dipakai lewat ListenableBuilder —
@@ -182,9 +103,8 @@ class TripState extends ChangeNotifier {
   final logs = <LogEntry>[];
   bool dark = true;
 
-  /// Anggota yang posisinya diketahui: dari simulasi (grup demo) atau dari
-  /// server. Semua hitungan rombongan — leader, sweeper, rentang — memakai
-  /// daftar ini saja.
+  /// Anggota yang posisinya diketahui dari server. Semua hitungan rombongan —
+  /// leader, sweeper, rentang — memakai daftar ini saja.
   final riders = <Rider>[];
 
   /// Anggota yang sudah gabung tapi belum menyalakan berbagi lokasi. Sengaja
@@ -192,9 +112,9 @@ class TripState extends ChangeNotifier {
   /// ditampilkan — RC justru perlu tahu siapa yang belum menyalakan lokasi.
   final untracked = <Member>[];
 
-  int tick = 0;
-  String clock = '14:32';
+  /// id rider yang sedang SOS, dan sejak kapan.
   int? sos;
+  DateTime? sosAt;
 
   /// Muat cache lokal lalu sambungkan ke server. Panggil sebelum runApp.
   /// Idempoten: memanggil ulang memuat ulang dari nol, tidak menumpuk grup.
@@ -208,6 +128,7 @@ class TripState extends ChangeNotifier {
       s.cancel();
     }
     _subs.clear();
+    _retried.clear();
     groups.clear();
     logs.clear();
     riders.clear();
@@ -223,12 +144,14 @@ class TripState extends ChangeNotifier {
       dark = saved.dark;
       activeId = saved.activeId;
       _tracks.addAll(saved.tracks);
-    } else {
-      groups.add(buildDemoGroup());
-      logs.addAll(_demoLogs());
     }
-    if (!groups.any((g) => g.id == activeId)) activeId = groups.first.id;
-    _activate();
+    // Pemasangan baru tidak punya grup sama sekali. Shell menampilkan layar
+    // "buat grup dulu" untuk keadaan itu — dulu di sini ada grup demo berisi 50
+    // rider palsu, dan angka simulasinya bocor ke rekap serta kartu bagikan.
+    if (!groups.any((g) => g.id == activeId)) {
+      activeId = groups.isEmpty ? null : groups.first.id;
+    }
+    if (hasGroup) _activate();
 
     _cloud = cloud;
     if (cloud == null) return;
@@ -245,6 +168,9 @@ class TripState extends ChangeNotifier {
 
   Cloud? _cloud;
   final _subs = <StreamSubscription<TripGroup>>[];
+
+  /// gid yang sudah pernah dicoba daftarkan ulang — penjaga anti-loop.
+  final _retried = <String>{};
 
   /// True kalau server tersambung. UI memakai ini untuk memberi tahu kapan
   /// grup baru akan dibagikan sungguhan dan kapan hanya lokal.
@@ -274,11 +200,10 @@ class TripState extends ChangeNotifier {
         notifyListeners();
       },
       onError: (Object e) {
-        // Penolakan izin berarti aksesku memang dicabut — road captain
-        // mengeluarkan aku, atau grupnya dihapus. Salinan lokal harus dilepas,
-        // kalau tidak grupnya terus terlihat dengan data basi selamanya.
+        // Penolakan izin ditangani terpisah: artinya bisa "aku dikeluarkan"
+        // atau "grupku belum terdaftar". Lihat [onAccessDenied].
         if (Cloud.isPermissionDenied(e)) {
-          _dropGroup(gid);
+          onAccessDenied(gid);
         } else {
           debugPrint('cloud: watch $gid gagal ($e)');
         }
@@ -286,33 +211,97 @@ class TripState extends ChangeNotifier {
     ));
   }
 
-  /// Lepas grup yang aksesnya sudah dicabut server.
-  void _dropGroup(String gid) {
+  /// Server menolak membaca grup [gid]. Dua sebab yang sangat berbeda:
+  ///
+  /// - **Aku bukan RC-nya** → aku memang dikeluarkan, atau grupnya dihapus.
+  ///   Salinan lokal dilepas, kalau tidak grupnya terus terlihat dengan data
+  ///   basi selamanya.
+  /// - **Aku RC-nya** → mustahil dikeluarkan dari grup sendiri, jadi yang
+  ///   terjadi adalah pendaftarannya belum tuntas. Didaftarkan ulang.
+  void onAccessDenied(String gid) {
     final g = groups.where((e) => e.gid == gid).firstOrNull;
     if (g == null) return;
+
+    // Road captain tidak mungkin dikeluarkan dari grupnya sendiri. Penolakan
+    // baca di grup sendiri berarti pendaftarannya ke server belum tuntas —
+    // biasanya penulisan `members/{uid}` gagal dan kegagalannya ditelan _guard.
+    //
+    // Dulu grupnya langsung dihapus di sini, dan akibatnya orang yang baru
+    // membuat grup terlempar kembali ke layar "buat grup" dengan pekerjaannya
+    // hilang. Daftarkan ulang, jangan dibuang.
+    if (amRc(g)) {
+      // Sekali coba saja. Tanpa penjaga ini, pendaftaran yang terus ditolak
+      // memicu watcher error → daftar ulang → error, berputar tanpa henti
+      // sambil menumpuk langganan.
+      if (_retried.add(gid)) {
+        _log('Grup "${g.name}" belum terdaftar di server',
+            'Mencoba mendaftarkan ulang', kWarn);
+        _register(g);
+      } else {
+        g
+          ..gid = null
+          ..rcUid = null;
+        _log('Grup "${g.name}" tidak bisa didaftarkan',
+            'Tersimpan di HP ini saja — datanya tetap utuh', kWarn);
+        _persist();
+      }
+      notifyListeners();
+      return;
+    }
+
     _log('Akses ke "${g.name}" dicabut',
         'Kamu dikeluarkan dari grup, atau grupnya dihapus road captain', kWarn);
     groups.remove(g);
-    if (groups.isEmpty) groups.add(buildDemoGroup());
-    if (!groups.any((e) => e.id == activeId)) activeId = groups.first.id;
-    _activate();
+    _reseat();
     _persist();
     notifyListeners();
   }
 
-  List<LogEntry> _demoLogs() => [
-        LogEntry('14:28', 'Rombongan lewat Rest Area Tumpang',
-            '48 dari 50 anggota tercatat', kOk),
-        LogEntry('14:12', 'Dimas Saputra berhenti',
-            'Isi bensin di SPBU Tumpang, 6 menit', kWarn),
-        LogEntry('13:55', 'Formasi dirapatkan',
-            'Rentang rombongan turun ke 2,1 km', kAcc),
-        LogEntry('13:30', 'Start etape 2',
-            '50 anggota check-in di Titik Kumpul Malang', kGrey),
-      ];
+  /// Daftarkan (atau daftarkan ulang) [g] ke server. Kalau gagal, `gid`
+  /// dilepas supaya grupnya jujur berstatus lokal dan bisa dicoba lagi —
+  /// bukan menggantung sebagai "ada di server" padahal tidak.
+  Future<void> _register(TripGroup g) async {
+    final cloud = _cloud;
+    if (cloud == null || !cloud.ready || g.gid == null) return;
+    try {
+      await cloud.createGroup(g);
+      if (g.hasRoute) await cloud.putRoute(g);
+      _watch(g.gid!);
+      _log('Grup "${g.name}" terdaftar di server',
+          'Kodenya sudah bisa dibagikan ke anggota', kOk);
+    } catch (e) {
+      debugPrint('cloud: pendaftaran ${g.gid} gagal ($e)');
+      g
+        ..gid = null
+        ..rcUid = null;
+      _log('Grup "${g.name}" belum bisa didaftarkan',
+          'Tersimpan di HP ini saja. Coba lagi saat sinyal membaik.', kWarn);
+    }
+    _persist();
+    notifyListeners();
+  }
 
-  /// Hentikan simulasi tanpa membuang state — dipakai saat app masuk
-  /// background dan oleh test supaya tidak ada timer menggantung.
+  /// Pilih grup aktif setelah daftar berubah. Boleh berakhir tanpa grup —
+  /// Shell menampilkan layar "buat grup dulu" untuk keadaan itu.
+  void _reseat() {
+    if (!groups.any((e) => e.id == activeId)) {
+      activeId = groups.isEmpty ? null : groups.first.id;
+    }
+    if (hasGroup) {
+      _activate();
+    } else {
+      riders.clear();
+      untracked.clear();
+      _liveSub?.cancel();
+      _liveSub = null;
+      _timer?.cancel();
+      _timer = null;
+      clearRoute();
+    }
+  }
+
+  /// Hentikan timer penyegar status tanpa membuang state — dipakai saat app
+  /// masuk background dan oleh test supaya tidak ada timer menggantung.
   void pause() {
     _timer?.cancel();
     _timer = null;
@@ -337,12 +326,28 @@ class TripState extends ChangeNotifier {
 
   // ── Grup ──────────────────────────────────────────────────────────────────
 
-  TripGroup get active =>
-      groups.firstWhere((g) => g.id == activeId, orElse: () => groups.first);
+  /// False untuk pemasangan baru: belum ada grup sama sekali. Shell memeriksa
+  /// ini dan menampilkan layar onboarding, sehingga layar-layar tab boleh
+  /// menganggap [active] selalu ada.
+  bool get hasGroup => groups.isNotEmpty;
 
-  /// True kalau ada posisi rider yang bisa ditampilkan — dari simulasi (grup
-  /// demo) maupun dari server. Layar peta/tim/rekap memakai ini untuk memilih
-  /// antara tampilan live dan tampilan rencana.
+  TripGroup? get activeOrNull => groups.isEmpty
+      ? null
+      : groups.firstWhere((g) => g.id == activeId, orElse: () => groups.first);
+
+  /// Grup aktif. Melempar kalau belum ada grup — panggil hanya di belakang
+  /// penjaga [hasGroup]. Lebih baik gagal terang-terangan daripada mengembalikan
+  /// grup kosong yang angkanya menyesatkan.
+  TripGroup get active {
+    final g = activeOrNull;
+    if (g == null) {
+      throw StateError('Belum ada grup — periksa hasGroup dulu.');
+    }
+    return g;
+  }
+
+  /// True kalau ada posisi rider dari server yang bisa ditampilkan. Layar
+  /// peta/tim/rekap memakai ini untuk memilih antara tampilan live dan rencana.
   bool get live => routeReady && riders.isNotEmpty;
 
   void setActive(String id) {
@@ -353,8 +358,9 @@ class TripState extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Pasang rute grup aktif ke cache global, lalu siapkan sumber posisi:
-  /// simulasi untuk grup demo, stream `live/` untuk grup server.
+  /// Pasang rute grup aktif ke cache global, lalu ikuti stream `live/` kalau
+  /// grupnya ada di server. Satu-satunya sumber posisi adalah server — dulu ada
+  /// jalur simulasi di sini, dan angkanya bocor ke rekap serta kartu bagikan.
   void _activate() {
     final g = active;
     if (g.hasRoute) {
@@ -371,35 +377,9 @@ class TripState extends ChangeNotifier {
     _liveSub = null;
     _livePos.clear();
     sos = null;
+    sosAt = null;
     if (!routeReady) return;
-
-    if (g.demo) {
-      _startSimulation(g);
-    } else if (g.onCloud) {
-      _startLiveFeed(g);
-    }
-  }
-
-  void _startSimulation(TripGroup g) {
-    for (var i = 0; i < g.members.length; i++) {
-      final m = g.members[i];
-      riders.add(Rider(
-        id: i,
-        name: m.name,
-        plat: m.plat,
-        role: m.role,
-        p: math.max(
-          0.02,
-          0.58 - i * 0.00042 - (i % 5) * 0.0002 -
-              ([11, 33, 27].contains(i) ? 0.028 : 0),
-        ),
-        v: 46 + ((i * 13) % 22),
-        batt: 38 + ((i * 17) % 58),
-        stopUntil: (i == 11 || i == 33) ? 40 : 0,
-      ));
-    }
-    _relabel();
-    _timer = Timer.periodic(const Duration(milliseconds: 900), (_) => _tick());
+    if (g.onCloud) _startLiveFeed(g);
   }
 
   // ── Lokasi live ───────────────────────────────────────────────────────────
@@ -468,7 +448,6 @@ class TripState extends ChangeNotifier {
         p: _progressAt(pos.at),
         v: pos.speedKmh,
         batt: pos.battery,
-        stopUntil: 0,
       )
         ..pos = pos.at
         ..head = pos.heading
@@ -524,7 +503,9 @@ class TripState extends ChangeNotifier {
   Future<LocationShareResult> startRecording() async {
     // Tanpa server pun tetap jalan: jejak itu milik pengguna sendiri, dan
     // rekapnya tidak bergantung pada siapa pun.
-    _sharer ??= LocationSharer(_cloud ?? Cloud())
+    final cloud = _cloud;
+    if (_sharer != null && cloud != null) _sharer!.cloud = cloud;
+    _sharer ??= LocationSharer(cloud ?? Cloud())
       ..onFix = (at, speedKmh) {
         track.add(at, speedKmh, DateTime.now());
         // Jejak disimpan berkala, bukan tiap fix: tulis-ulang blob penuh tiap
@@ -540,6 +521,16 @@ class TripState extends ChangeNotifier {
       _log('Mulai merekam perjalanan',
           'Jejak dicatat di HP ini; anggota lain belum bisa melihat posisimu',
           kWarn);
+    } else {
+      // Kegagalan ikut dicatat ke riwayat, bukan cuma lewat SnackBar yang
+      // hilang beberapa detik kemudian — supaya sebabnya masih bisa dibaca.
+      _log('Gagal menyalakan GPS', switch (r) {
+        LocationShareResult.ditolak => 'Izin lokasi ditolak',
+        LocationShareResult.ditolakPermanen =>
+          'Izin lokasi diblokir permanen — buka Pengaturan aplikasi',
+        LocationShareResult.layananMati => 'Layanan lokasi HP sedang mati',
+        _ => 'Alasan tidak diketahui',
+      }, kBad);
     }
     notifyListeners();
     return r;
@@ -604,12 +595,9 @@ class TripState extends ChangeNotifier {
     _persist();
     notifyListeners();
 
-    if (g.onCloud) {
-      await _guard('Grup gagal didaftarkan ke server', () async {
-        await cloud!.createGroup(g);
-        _watch(g.gid!);
-      });
-    }
+    // Satu jalur pendaftaran untuk semua kasus: buat baru maupun coba lagi
+    // setelah gagal. Kalau gagal, gid dilepas supaya grupnya jujur lokal.
+    if (g.onCloud) await _register(g);
     return g;
   }
 
@@ -662,9 +650,7 @@ class TripState extends ChangeNotifier {
     }
 
     groups.removeWhere((e) => e.id == id);
-    if (groups.isEmpty) groups.add(buildDemoGroup());
-    if (!groups.any((e) => e.id == activeId)) activeId = groups.first.id;
-    _activate();
+    _reseat();
     _persist();
     notifyListeners();
   }
@@ -797,7 +783,7 @@ class TripState extends ChangeNotifier {
   }
 
   void _log(String title, String body, int color) =>
-      logs.insert(0, LogEntry(clock, title, body, color));
+      logs.insert(0, LogEntry(fmtClock(DateTime.now()), title, body, color));
 
   // ── Turunan untuk layar live ───────────────────────────────────────────────
 
@@ -805,9 +791,8 @@ class TripState extends ChangeNotifier {
   /// Nilai netral, bukan exception: layar yang menampilkannya sudah dijaga
   /// [live], jadi ini cuma jaring supaya `reduce` tidak pernah melempar
   /// "Bad state: No element" kalau ada satu penjaga yang terlewat.
-  static final _noRider = Rider(
-      id: -1, name: '—', plat: '', role: 'RIDER', p: 0, v: 0, batt: 0,
-      stopUntil: 0);
+  static final _noRider =
+      Rider(id: -1, name: '—', plat: '', role: 'RIDER', p: 0, v: 0, batt: 0);
 
   Rider get leader =>
       riders.isEmpty ? _noRider : riders.reduce((m, r) => r.p > m.p ? r : m);
@@ -828,111 +813,84 @@ class TripState extends ChangeNotifier {
       return c != 0 ? c : b.p.compareTo(a.p);
     });
 
-  int get startMinute => active.when.hour * 60 + active.when.minute;
-
-  int get elapsedMin {
-    final parts = clock.split(':').map(int.parse).toList();
-    return math.max(1, parts[0] * 60 + parts[1] - startMinute);
-  }
-
   double get avgSpeed => riders.isEmpty
       ? 0
       : riders.map((r) => r.v).reduce((a, b) => a + b) / riders.length;
   double get topSpeed =>
       riders.isEmpty ? 0 : riders.map((r) => r.v).reduce(math.max);
-  int get stopCount => riders.where((r) => r.stopUntil > 0).length;
-  String get durText => fmtDur(elapsedMin);
+
+  /// Berapa rider yang sedang tidak bergerak, dari kecepatan GPS-nya.
+  int get stopCount =>
+      riders.where((r) => r.status == RiderStatus.berhenti).length;
+
   int get etaMin => riders.isEmpty
       ? 0
       : math.max(0,
           ((totalKm - leader.p * totalKm) / math.max(20, avgSpeed) * 60).round());
 
+  /// Sudah berapa lama SOS-nya aktif. Null kalau tidak ada SOS.
+  Duration? get sosFor =>
+      sosAt == null ? null : DateTime.now().difference(sosAt!);
+
+  /// Tandai diriku sedang butuh bantuan.
+  ///
+  /// ponytail: baru lokal — belum ditulis ke `sos/{uid}` di server, jadi anggota
+  /// lain belum melihatnya. Node dan Rules-nya sudah siap; tahap 3 di
+  /// RENCANA_BACKEND.md yang menyambungkannya.
   void fireSos() {
-    if (riders.isEmpty) return;
-    final me = riders[math.min(27, riders.length - 1)];
+    final me = riders.where((r) => r.uid == myUid).firstOrNull;
+    if (me == null) {
+      _log('SOS tidak bisa dikirim',
+          'Tekan MULAI dulu supaya posisimu diketahui', kWarn);
+      notifyListeners();
+      return;
+    }
     sos = me.id;
+    sosAt = DateTime.now();
     _log('SOS dikirim oleh ${me.name}',
-        'Notifikasi ke road captain, sweeper, dan grup keluarga', kBad);
-    _relabel();
+        'Hubungi road captain dan sweeper lewat telepon juga', kBad);
+    _relabelLive(DateTime.now());
     _persist();
     notifyListeners();
   }
 
   void clearSos() {
     sos = null;
-    _log('SOS ditutup', 'Anggota sudah bergabung kembali ke rombongan', kOk);
-    _relabel();
+    sosAt = null;
+    _log('SOS ditutup', 'Ditandai sudah ditangani', kOk);
+    _relabelLive(DateTime.now());
     _persist();
     notifyListeners();
-  }
-
-  void _tick() {
-    if (riders.isEmpty || !routeReady) return;
-    final lead0 = riders.map((r) => r.p).reduce(math.max);
-    for (final r in riders) {
-      if (r.stopUntil > 0) {
-        r.stopUntil -= 1;
-      } else {
-        r.p = math.min(1, r.p + (r.v / 3600) * 0.9 / totalKm * 6);
-      }
-      if (_rnd.nextDouble() < 0.0015 && r.stopUntil == 0 && r.role == 'RIDER') {
-        r.stopUntil = 10 + _rnd.nextInt(16);
-      }
-      r.v = (r.v + (_rnd.nextDouble() - .5) * 5).clamp(38, 78);
-      // Jangan biarkan ada yang tertinggal lebih dari 6 km.
-      r.p = math.max(r.p, math.min(lead0, lead0 - 6 / totalKm));
-      if (tick % 40 == 0 && r.batt != null) {
-        r.batt = math.max(4, r.batt! - 1);
-      }
-    }
-    tick++;
-    clock = '14:${((32 + tick ~/ 4) % 60).toString().padLeft(2, "0")}';
-    _relabel();
-    notifyListeners();
-  }
-
-  /// Hitung ulang status, posisi, dan arah tiap rider.
-  void _relabel() {
-    if (riders.isEmpty || !routeReady) return;
-    final lead = riders.map((r) => r.p).reduce(math.max);
-    for (final r in riders) {
-      r.behindKm = (lead - r.p) * totalKm;
-      r.status = sos == r.id
-          ? RiderStatus.sos
-          : r.stopUntil > 0
-              ? RiderStatus.berhenti
-              : r.behindKm > 3.2
-                  ? RiderStatus.tertinggal
-                  : RiderStatus.aman;
-      r.pos = pointAt(r.p);
-      r.head = bearingDeg(r.pos, pointAt(math.min(1, r.p + 0.004)));
-    }
   }
 }
 
 final trip = TripState();
 
+/// Rekap teks. Angkanya dari jejak GPS kalau ada; kalau belum, dari rencana —
+/// dan tidak pernah dari keduanya sekaligus.
 String shareText(TripState s) {
   final g = s.active;
+  final t = s.track;
   final stops = g.stops.map((e) => e.label).join(' → ');
-  if (!s.live) {
+
+  if (t.isEmpty) {
     return '🏍️ Rencana Touring — ${g.name} (${g.club})\n'
         'Group ID: ${g.id}\n'
         'Jadwal: ${fmtWhen(g.when)}\n'
+        'Moda: ${g.mode.label}\n'
         'Rute: $stops\n'
         'Jarak: ${km1(g.km)} km · estimasi ${fmtDur(g.minutes)}\n'
         'Anggota: ${g.members.length} rider\n'
         'Kode gabung:\n${g.shareCode}';
   }
+
   return '🏍️ Rekap Touring — ${g.name} (${g.club})\n'
+      'Moda: ${g.mode.label}\n'
       'Rute: $stops\n'
-      'Jarak: ${km1(s.leader.p * totalKm)} / ${km1(totalKm)} km\n'
-      'Durasi: ${s.durText}\n'
-      'Kecepatan rata-rata: ${s.avgSpeed.round()} km/j '
-      '(maks ${s.topSpeed.round()} km/j)\n'
-      'Rombongan: ${s.riders.length} rider · ${s.count(RiderStatus.aman)} aman · '
-      '${s.count(RiderStatus.tertinggal)} tertinggal · '
-      '${s.count(RiderStatus.berhenti)} berhenti\n'
-      'Rentang rombongan: ${km1(s.spread)} km\n'
-      'Sisa perjalanan: ± ${s.etaMin} menit';
+      'Jarak tempuh: ${km1(t.km)} km'
+      '${g.hasRoute ? " dari rute ${km1(g.km)} km" : ""}\n'
+      'Durasi: ${fmtDur(t.duration.inMinutes)}\n'
+      'Kecepatan rata-rata: ${t.avgKmh.round()} km/j '
+      '(maks ${t.topKmh.round()} km/j)\n'
+      'Mulai: ${fmtWhen(t.startedAt!)}';
 }

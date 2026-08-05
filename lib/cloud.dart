@@ -100,8 +100,18 @@ class Cloud {
       },
     });
     // Anggota ditulis terpisah: Rules memvalidasi members/$uid per node.
+    //
+    // Baris pembuat grup WAJIB berada di members/{auth.uid} — aturan `.read`
+    // grup memeriksa tepat kunci itu. Kalau ini tidak sampai, pemiliknya
+    // sendiri tidak bisa membaca grupnya.
     for (final m in g.members) {
-      await ref.child('members/$_uid').set(_member(m));
+      await ref.child('members/${m.uid ?? _uid}').set(_member(m));
+    }
+    // Pastikan barisku ada, apa pun isi daftar anggotanya.
+    if (!g.members.any((m) => m.uid == _uid)) {
+      final me = g.roadCaptain ?? g.members.firstOrNull;
+      await ref.child('members/$_uid').set(_member(me ??
+          Member(name: 'Road Captain', plat: '', role: 'RC', uid: _uid)));
     }
   }
 

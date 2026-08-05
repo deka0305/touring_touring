@@ -1,11 +1,24 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- Tile peta CARTO, font Google, dan share ke WhatsApp. -->
     <uses-permission android:name="android.permission.INTERNET"/>
-    <!-- Berbagi lokasi ke anggota grup, hanya selama app dibuka. Lokasi
-         background belum dipakai, jadi ACCESS_BACKGROUND_LOCATION sengaja
-         tidak diminta — izin itu butuh justifikasi terpisah di Play Store. -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <!-- Perekaman jejak jalan terus saat layar mati, lewat layanan foreground
+         (notifikasi tetap terlihat selama merekam). ACCESS_BACKGROUND_LOCATION
+         sengaja TIDAK diminta: layanan foreground yang dimulai saat app
+         terbuka tidak membutuhkannya, dan izin itu perlu justifikasi
+         terpisah di Play Store.
+         FOREGROUND_SERVICE_LOCATION wajib sejak Android 14. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
+    <!-- Tanpa wake lock, Android menahan fix GPS lalu mengirimnya menumpuk
+         saat layar dinyalakan — jejaknya jadi garis lurus antar-lompatan. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <!-- Hanya supaya notifikasi "Merekam perjalanan" terlihat. Sejak Android
+         13 izin ini harus diberikan pengguna; kalau ditolak, notifikasinya
+         disembunyikan tapi perekamannya TETAP jalan. Tidak diminta saat
+         runtime — itu butuh paket izin tersendiri, dan nilainya cuma kosmetik. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <queries>
         <intent>
             <action android:name="android.intent.action.VIEW"/>

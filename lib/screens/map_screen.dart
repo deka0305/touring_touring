@@ -44,7 +44,7 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   /// Bingkai leader + sweeper. Hanya digeser kalau salah satu keluar frame,
-  /// biar peta nggak "gelisah" tiap tick.
+  /// biar peta nggak "gelisah" tiap kiriman posisi.
   void _fit({bool force = false}) {
     if (!trip.live) return _fitRoute();
     final cam = _ctrl.camera;
@@ -144,8 +144,21 @@ class _MapScreenState extends State<MapScreen> {
     final live = trip.live;
     final sosR = live ? trip.sosRider : null;
     if (!routeReady) {
-      return _EmptyRoute(
-          onEdit: _editRoute, canEdit: trip.amRc(trip.active));
+      // Tombol MULAI tetap ada di sini. Merekam jejak GPS tidak butuh rute —
+      // dulu tombolnya hanya hidup di dalam peta, dan peta ini menggantikannya
+      // seluruhnya, jadi GPS tidak bisa dinyalakan sama sekali sebelum rute
+      // disusun.
+      return Stack(
+        children: [
+          _EmptyRoute(onEdit: _editRoute, canEdit: trip.amRc(trip.active)),
+          Positioned(
+            left: 16,
+            right: 16,
+            bottom: 14,
+            child: _RecordBar(onTap: _toggleRecording),
+          ),
+        ],
+      );
     }
 
     return Column(
@@ -206,12 +219,12 @@ class _MapScreenState extends State<MapScreen> {
                       ),
                     ],
                   ]),
-                  const _WaypointLayer(),
+                  _WaypointLayer(),
                   if (live) ...[
-                    const _RiderLayer(),
+                    _RiderLayer(),
                     _PinLayer(onSeeSos: widget.onSeeSos),
                   ] else
-                    const _StopLayer(),
+                    _StopLayer(),
                   RichAttributionWidget(
                     alignment: AttributionAlignment.bottomLeft,
                     attributions: [
@@ -312,7 +325,7 @@ class _MapScreenState extends State<MapScreen> {
             ],
           ),
         ),
-        if (live) const _Sheet() else const _PlanSheet(),
+        if (live) _Sheet() else _PlanSheet(),
       ],
     );
   }
@@ -374,6 +387,10 @@ class _EmptyRoute extends StatelessWidget {
 }
 
 /// Marker bernomor untuk grup tanpa pelacakan live: yang ada cuma rencana.
+///
+/// Dipakai tanpa `const` di build: widget const dikanonikalisasi, jadi
+/// instansinya identik tiap build dan Flutter melewati subtree-nya — apa pun
+/// yang membaca `trip` di sini akan membeku menampilkan data basi.
 class _StopLayer extends StatelessWidget {
   const _StopLayer();
 
@@ -523,21 +540,28 @@ class _RecordBar extends StatelessWidget {
                 color: on ? Colors.white : const Color(0xFF12140F)),
             const SizedBox(width: 10),
             Expanded(
-              child: on
-                  ? Row(
-                      children: [
-                        _live('JARAK', '${km1(t.km)} km'),
-                        const SizedBox(width: 16),
-                        _live('WAKTU', fmtDur(t.duration.inMinutes)),
-                        if (t.avgKmh > 0) ...[
-                          const SizedBox(width: 16),
-                          _live('RATA²', '${t.avgKmh.round()} km/j'),
-                        ],
-                      ],
-                    )
-                  : Text('MULAI REKAM PERJALANAN',
+              child: !on
+                  ? Text('MULAI REKAM PERJALANAN',
                       style: mono(700, 13,
-                          color: const Color(0xFF12140F), spacing: 1)),
+                          color: const Color(0xFF12140F), spacing: 1))
+                  // Sudah merekam tapi belum ada satu titik pun: GPS masih
+                  // mencari sinyal. Tanpa keterangan ini, "0,0 km" terlihat
+                  // seperti perekamannya rusak.
+                  : t.points.isEmpty
+                      ? Text('MENUNGGU SINYAL GPS…',
+                          style: mono(700, 12,
+                              color: Colors.white, spacing: 1))
+                      : Row(
+                          children: [
+                            _live('JARAK', '${km1(t.km)} km'),
+                            const SizedBox(width: 16),
+                            _live('WAKTU', fmtDur(t.duration.inMinutes)),
+                            if (t.avgKmh > 0) ...[
+                              const SizedBox(width: 16),
+                              _live('RATA²', '${t.avgKmh.round()} km/j'),
+                            ],
+                          ],
+                        ),
             ),
             if (!on && !trip.active.onCloud)
               Icon(Icons.cloud_off, size: 15, color: p.tx2),
@@ -1102,7 +1126,7 @@ class _WatchChip extends StatelessWidget {
     final p = Pal.of(context);
     final c = Color(r.status.color);
     final note = switch (r.status) {
-      RiderStatus.berhenti => 'berhenti ${(r.stopUntil / 2).ceil()} mnt',
+      RiderStatus.berhenti => 'tidak bergerak',
       RiderStatus.sos => 'minta bantuan',
       _ => '-${km1(r.behindKm)} km',
     };

@@ -4,6 +4,8 @@ import 'package:touring_touring/data.dart';
 import 'package:touring_touring/polyline.dart';
 import 'package:touring_touring/share_card.dart';
 
+import 'fixture.dart';
+
 void main() {
   group('TripMode', () {
     test('motor menghindari tol — di Indonesia motor dilarang masuk tol', () {
@@ -96,9 +98,9 @@ void main() {
   group('ShareStats — pilihan garis kartu', () {
     TripState siap() {
       final s = TripState();
-      s.groups.add(buildDemoGroup());
-      s.activeId = demoGroupId;
-      setRoute(buildDemoGroup().geometry,
+      s.groups.add(ujiGroup());
+      s.activeId = ujiGroupId;
+      setRoute(ujiGroup().geometry,
           [const Waypoint(0, 'A'), const Waypoint(18, 'B')]);
       return s;
     }

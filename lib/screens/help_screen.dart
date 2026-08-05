@@ -17,20 +17,12 @@ const _steps = <(String, String, List<String>)>[
     'Susun rute',
     'Detail grup → Susun rute sekarang',
     [
+      'Pilih moda dulu: Motor, Mobil, Sepeda, atau Lari. Jalurnya benar-benar berbeda.',
+      'Motor menghindari tol — di Indonesia motor dilarang masuk tol.',
       'Tekan "Cari & tambah tujuan" lalu ketik nama tempat, mis. "Tumpang Malang".',
       'Atau tahan lama di peta untuk menaruh titik di lokasi bebas.',
       'Geser ikon garis tiga untuk mengubah urutan; titik pertama jadi MULAI, terakhir jadi FINISH.',
-      'Rute otomatis mengikuti jalan raya. Jarak dan estimasi waktu muncul di bawah.',
       'Tekan "Simpan rute".',
-    ],
-  ),
-  (
-    'Tambah anggota',
-    'Detail grup → Anggota → Tambah',
-    [
-      'Isi nama, nopol, dan peran: Road Captain, Sweeper, Marshal, atau Rider.',
-      'Road captain dan sweeper hanya boleh satu; yang lama otomatis jadi Rider.',
-      'Geser baris anggota ke kiri untuk menghapus.',
     ],
   ),
   (
@@ -39,7 +31,28 @@ const _steps = <(String, String, List<String>)>[
     [
       'Tekan "Kirim via WhatsApp" — pesan undangan berisi jadwal, rute, dan kode gabung.',
       'Anggota memasang app ini, buka Grup → Gabung pakai kode, lalu tempel kodenya.',
-      'Kode hanya memuat daftar titik; app penerima menyusun ulang rutenya sendiri.',
+      'Tidak ada tombol "tambah anggota": lokasi itu milik HP, jadi orang yang didaftarkan dari HP-mu tidak akan pernah punya titik di peta.',
+      'Ketuk baris anggota untuk mengubah perannya, atau menghapusnya.',
+    ],
+  ),
+  (
+    'Mulai merekam saat berangkat',
+    'Tab Peta → tombol MULAI',
+    [
+      'Satu tombol: merekam jejak GPS-mu, sekaligus menampilkan posisimu ke anggota.',
+      'Jejak selalu direkam, bahkan tanpa internet — itu milikmu sendiri.',
+      'Posisi dikirim tiap 10 detik, dilewati kalau bergeser kurang dari 25 meter.',
+      'App harus tetap terbuka; layar mati lama menghentikan perekaman.',
+    ],
+  ),
+  (
+    'Lihat hasilnya',
+    'Tab Rekap → Bagikan sebagai gambar',
+    [
+      'Rekap memakai jejak GPS: jarak, durasi, rata-rata, dan kecepatan maksimum.',
+      'Jam checkpoint diambil dari jejak nyata; yang tidak dilewati ditandai "—".',
+      'Kartu gambar bisa memakai jejak GPS atau rute rencana — kamu yang pilih.',
+      'Tambah foto, lalu kirim ke WhatsApp, Instagram, atau simpan ke galeri.',
     ],
   ),
   (
@@ -80,10 +93,11 @@ class HelpScreen extends StatelessWidget {
                 Text('Yang belum bisa', style: arch(700, 14, color: warn)),
                 const SizedBox(height: 6),
                 Text(
-                  'Pelacakan lokasi live antar-HP belum ada — itu butuh server. '
-                  'Sekarang app ini merencanakan touring: grup, rute, anggota, '
-                  'dan berbagi. Tab Peta hanya bergerak untuk grup contoh '
-                  '"Bromo Etape 2 (contoh)".',
+                  'Lokasi tetap terkirim saat layar mati belum bisa — Android '
+                  'menghentikannya beberapa menit setelah layar padam. Untuk '
+                  'sekarang HP harus di dudukan dengan app terbuka.\n\n'
+                  'Notifikasi SOS ke HP yang app-nya tertutup juga belum bisa. '
+                  'HT atau telepon tetap jalur darurat utama.',
                   style: arch(400, 13, color: p.tx2, height: 1.5),
                 ),
               ],
@@ -97,12 +111,14 @@ class HelpScreen extends StatelessWidget {
           const SectionLabel('DATA KAMU'),
           const SizedBox(height: 8),
           Text(
-            'Semua grup, rute, dan anggota disimpan di HP ini saja — tidak '
-            'dikirim ke mana pun. Menghapus app berarti menghapus datanya, '
-            'jadi simpan kode gabung tiap grup kalau perlu.\n\n'
+            'Grup, rute, dan anggota tersimpan di server, jadi tidak hilang '
+            'saat ganti HP. Jejak GPS-mu disimpan di HP ini saja — tidak '
+            'dikirim ke mana pun.\n\n'
             'Pencarian tempat memakai Nominatim OpenStreetMap dan penyusunan '
-            'rute memakai OSRM. Keduanya butuh internet saat menyusun rute; '
-            'setelah tersimpan, rute bisa dilihat offline.',
+            'rute memakai Valhalla. Keduanya butuh internet saat menyusun '
+            'rute; setelah tersimpan, rutenya bisa dilihat offline.\n\n'
+            'Tidak ada data contoh di app ini. Semua angka yang kamu lihat '
+            'berasal dari grup, rute, atau jejak GPS-mu sendiri.',
             style: arch(400, 13, color: p.tx2, height: 1.6),
           ),
         ],

@@ -37,11 +37,49 @@ enum LocationShareResult {
 class LocationSharer {
   LocationSharer(this._cloud);
 
-  final Cloud _cloud;
+  Cloud _cloud;
+
+  /// Ganti sambungan server. Perlu karena sharer bisa dibuat saat masih
+  /// offline; tanpa ini ia memegang Cloud mati selamanya dan posisinya tidak
+  /// pernah terkirim walau server sudah tersambung.
+  set cloud(Cloud c) => _cloud = c;
 
   static const _minInterval = Duration(seconds: 10);
   static const _minMeters = 25;
   static const _dist = Distance();
+
+  /// Setelan pembacaan GPS. [distanceFilter] adalah saringan pertama dan
+  /// dikerjakan OS — hemat baterai karena callback-nya tidak dipanggil untuk
+  /// pergeseran kecil.
+  ///
+  /// Di Android dipakai layanan foreground. Tanpa itu sistem membekukan app
+  /// beberapa menit setelah layar mati, dan jejaknya berhenti persis saat HP
+  /// masuk kantong — kondisi normal sepanjang touring.
+  @visibleForTesting
+  static LocationSettings settings() {
+    if (defaultTargetPlatform != TargetPlatform.android) {
+      return const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: _minMeters,
+      );
+    }
+    return AndroidSettings(
+      accuracy: LocationAccuracy.high,
+      distanceFilter: _minMeters,
+      foregroundNotificationConfig: const ForegroundNotificationConfig(
+        notificationTitle: 'Merekam perjalanan',
+        notificationText: 'Jejak GPS dicatat walau layar mati',
+        notificationChannelName: 'Rekam perjalanan',
+        // Wake lock menjaga fix tetap datang satu per satu. Tanpa itu Android
+        // menahannya lalu mengirim menumpuk saat layar dinyalakan, dan jejak
+        // di antaranya jadi garis lurus.
+        enableWakeLock: true,
+        // Tidak bisa di-swipe: notifikasinya satu-satunya tanda perekaman
+        // masih jalan, dan menghilangkannya menyesatkan.
+        setOngoing: true,
+      ),
+    );
+  }
 
   StreamSubscription<Position>? _sub;
   Timer? _heartbeat;
@@ -86,14 +124,8 @@ class LocationSharer {
       }
     }
 
-    _sub = Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        // Saringan pertama, dikerjakan OS: hemat baterai karena callback-nya
-        // tidak dipanggil untuk pergeseran kecil.
-        distanceFilter: _minMeters,
-      ),
-    ).listen(_onFix, onError: (Object e) {
+    _sub = Geolocator.getPositionStream(locationSettings: settings())
+        .listen(_onFix, onError: (Object e) {
       debugPrint('location: stream GPS error ($e)');
     });
 

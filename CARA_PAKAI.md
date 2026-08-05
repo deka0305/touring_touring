@@ -1,7 +1,8 @@
 # Touring Tracker — Cara Pakai
 
-App perencana touring motor: satu grup, satu rute, satu daftar anggota. Semua
-data tersimpan di HP kamu.
+App touring motor: rencanakan rute, bagikan grup, rekam perjalanan.
+Tidak ada data contoh — semua yang tampil berasal dari grup dan jejak GPS-mu
+sendiri.
 
 ---
 
@@ -16,16 +17,17 @@ data tersimpan di HP kamu.
   **road captain langsung melihat mereka masuk**.
 - Grup & rute tersimpan di server, jadi tidak hilang saat ganti HP.
 - Tetap terbuka offline dari salinan di HP.
-
 - **Lihat posisi anggota live di peta**, lengkap dengan deteksi siapa hilang
   sinyal — selama app dibuka.
+- **Rekam perjalanan** lalu bagikan rekapnya sebagai kartu gambar.
+- **Merekam terus walau layar mati** — HP boleh masuk kantong.
 
 **Belum bisa**
 
-Lokasi tetap terkirim saat layar mati atau app ditutup. Android menghentikan
-pengiriman beberapa menit setelah layar mati; itu butuh *foreground service*
-yang belum dikerjakan. Untuk sekarang: **HP harus di dudukan dengan app terbuka**,
-sebaiknya sambil dicas.
+Perekaman berhenti kalau **app-nya ditutup paksa** (di-swipe dari daftar app
+terbaru) atau HP mematikan aplikasinya untuk hemat baterai. Selama merekam ada
+notifikasi *"Merekam perjalanan"* — kalau notifikasi itu hilang padahal belum
+ditekan STOP, jejaknya terputus. Bawa power bank untuk touring panjang.
 
 Notifikasi SOS ke HP yang app-nya tertutup juga belum bisa, dan tidak akan bisa
 di paket Firebase gratis. **HT atau telepon tetap jalur darurat utama.**
@@ -35,6 +37,16 @@ komunikasi tetap lewat HT atau WhatsApp.
 
 > Kalau app bilang "Server tidak tersambung", konfigurasi Firebase belum diisi —
 > lihat `RENCANA_BACKEND.md`. Grup tetap bisa dibuat, hanya belum bisa dibagikan.
+
+---
+
+## 0. Pertama kali buka
+
+App mulai kosong: belum ada grup sama sekali. Dua pilihan saja, karena memang
+cuma ada dua jalan masuk:
+
+- **Buat grup touring** — kamu jadi road captain
+- **Gabung pakai kode** — kalau road captain sudah mengirim kodenya
 
 ---
 
@@ -244,9 +256,29 @@ Yang perlu diketahui:
 - Posisi dikirim tiap **10 detik**, dilewati kalau bergeser kurang dari
   **25 meter**. Rider yang berhenti hampir tidak memakai kuota.
 - Jejak disimpan satu titik per **200 meter** — rute 100 km jadi ~500 titik.
-- **App harus tetap terbuka.** Layar mati lama = perekaman berhenti.
+- **Layar boleh dimatikan, HP boleh masuk kantong.** Selama merekam muncul
+  notifikasi *"Merekam perjalanan"* yang tidak bisa di-swipe — itu tandanya
+  perekaman masih hidup. Jangan tutup paksa app-nya (swipe dari daftar app
+  terbaru), itu mematikan perekaman.
 - Ikon ☁️ bersilang di tombol berarti grupnya lokal: jejak tetap direkam, tapi
   anggota lain tidak melihat posisimu.
+- **Rute belum perlu ada.** Tombol MULAI tetap muncul walau rutenya belum
+  disusun — merekam jejak tidak butuh rute.
+
+### Kalau GPS tidak mau jalan
+
+Sesudah menekan MULAI, tombolnya harus jadi merah. Kalau tidak:
+
+| Yang terlihat | Artinya |
+|---|---|
+| **MENUNGGU SINYAL GPS…** | Normal. GPS sedang mencari sinyal — di dalam ruangan bisa lama. Keluar ke tempat terbuka |
+| Pesan *"Izin lokasi ditolak"* | Tekan MULAI lagi dan pilih **Izinkan** |
+| Pesan *"Izin lokasi diblokir"* | Pengaturan → Aplikasi → Touring Tracker → Izin → Lokasi → Izinkan |
+| Pesan *"GPS mati"* | Nyalakan Lokasi di panel setelan cepat HP |
+| Jejak terputus sesudah HP dikantongi | Hemat baterai membunuh app-nya. Pengaturan → Aplikasi → Touring Tracker → Baterai → **Tanpa batasan** (Xiaomi/Oppo/Vivo/Samsung paling agresif) |
+
+Semua kegagalan juga tercatat di **tab SOS → Riwayat kejadian**, jadi alasannya
+tetap bisa dibaca setelah pesan sekilasnya hilang.
 
 ### Pilih apa yang digambar di peta
 
@@ -335,13 +367,14 @@ latar, dengan gradien gelap supaya angkanya tetap terbaca di foto terang.
 
 Grup aktif (bertanda **AKTIF** hijau) menentukan apa yang tampil di tab lain:
 
-| Tab | Grup demo | Grup kamu |
+Apa yang tampil bergantung pada apa yang sudah ada — bukan pada jenis grup:
+
+| Tab | Belum ada posisi | Sudah ada posisi dari server |
 |---|---|---|
-| **Peta** | 50 marker bergerak, pin RC/sweeper, rentang rombongan | Rute + titik bernomor + ringkasan rencana |
-| **Tim** | Daftar rider dengan status, kecepatan, baterai | Daftar anggota dengan peran dan nopol |
-| **SOS** | Tombol darurat aktif + riwayat | Keterangan kenapa belum aktif |
-| **Rekap** | Rekap live rombongan | Rekap jejak GPS-mu kalau sudah merekam; kalau belum, rencana rute |
-| **Grup** | Sama | Sama |
+| **Peta** | Rute + titik bernomor + ringkasan rencana | Marker anggota, pin RC/sweeper, rentang rombongan |
+| **Tim** | Daftar anggota dengan peran dan nopol | TERLACAK (status, kecepatan) + BELUM TERLACAK |
+| **SOS** | Keterangan kenapa belum aktif | Tombol darurat aktif + riwayat |
+| **Rekap** | Rencana rute | Keadaan rombongan; kalau kamu sudah merekam, rekap jejak GPS-mu |
 
 ---
 
@@ -349,16 +382,22 @@ Grup aktif (bertanda **AKTIF** hijau) menentukan apa yang tampil di tab lain:
 
 **Tema.** Ikon matahari/bulan di kanan atas. Pilihanmu tersimpan.
 
-**Data kamu.** Semua grup, rute, dan anggota disimpan di HP ini saja, tidak
-dikirim ke mana pun. Menghapus app berarti menghapus datanya — simpan kode
-gabung tiap grup kalau isinya penting.
+**Data kamu.** Grup, rute, dan anggota tersimpan di server, jadi tidak hilang
+saat ganti HP. **Jejak GPS-mu disimpan di HP ini saja** dan tidak dikirim ke mana
+pun — menghapus app berarti menghapus jejaknya.
 
-**Grup demo.** `Bromo Etape 2 (contoh)` boleh dihapus. Kalau semua grup terhapus,
-app memunculkannya kembali supaya tidak ada keadaan kosong tanpa jalan keluar.
+**Tidak ada data contoh.** App ini tidak punya grup demo. Pemasangan baru mulai
+kosong dengan dua pilihan: buat grup, atau gabung pakai kode. Setiap angka yang
+kamu lihat berasal dari grup, rute, atau jejak GPS-mu sendiri — dulu ada grup
+contoh berisi 50 rider palsu, dan angka simulasinya bocor ke tab Rekap serta
+kartu bagikan sebagai jarak dan durasi yang tidak pernah terjadi.
+
+Kalau semua grup dihapus, app kembali ke layar awal itu — bukan diisi data
+karangan.
 
 **Sumber peta.** Petak peta dari CARTO, data dari OpenStreetMap, pencarian nama
-tempat dari Nominatim, penyusunan rute dari OSRM. Semuanya gratis tanpa API key,
-jadi mohon dipakai dengan wajar — pencarian sengaja diperlambat sedikit agar
+tempat dari Nominatim, penyusunan rute dari Valhalla. Semuanya gratis tanpa API
+key, jadi mohon dipakai dengan wajar — pencarian sengaja diperlambat sedikit agar
 tidak membanjiri layanannya.
 
 ---
@@ -369,8 +408,10 @@ tidak membanjiri layanannya.
 lib/
   model.dart              Stop, Member, TripGroup, Rider — murni data, tanpa Flutter UI
   store.dart              simpan/muat ke SharedPreferences (satu blob JSON)
-  data.dart               TripState (global `trip`) + cache rute aktif + simulasi demo
-  osm.dart                Nominatim (cari tempat) & OSRM (snap ke jalan)
+  data.dart               TripState (global `trip`) + cache rute aktif
+  osm.dart                Nominatim (cari tempat) & Valhalla (rute per moda)
+  track.dart              rekaman jejak GPS, diperkecil per 200 m
+  share_card.dart         kartu gambar + tangkap PNG + lembar bagikan
   theme.dart              palet gelap/terang, helper font mono()/arch()
   main.dart               shell + bottom nav 5 tab + header
   screens/

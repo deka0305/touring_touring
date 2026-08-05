@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'data.dart';
 import 'firebase_config.dart';
+import 'screens/group_screen.dart';
 import 'screens/groups_screen.dart';
 import 'screens/map_screen.dart';
 import 'screens/sos_screen.dart';
@@ -50,26 +51,40 @@ class _ShellState extends State<Shell> {
     (Icons.history, 'REKAP'),
   ];
 
+  /// Seluruh isi Shell dibangun di dalam ListenableBuilder ini.
+  ///
+  /// Penting: `home: const Shell()` itu widget const, jadi saat MaterialApp
+  /// dibangun ulang Flutter melihat widget yang identik dan **melewati subtree
+  /// ini**. Tanpa listener di sini, `trip.hasGroup` tidak pernah dievaluasi
+  /// ulang — dan orang yang baru membuat grup tetap melihat layar "buat grup".
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ListenableBuilder(
+        listenable: trip,
+        builder: (context, _) =>
+            trip.hasGroup ? _tabShell(context) : const _NoGroup(),
+      );
+
+  Widget _tabShell(BuildContext context) {
     final p = Pal.of(context);
     return Scaffold(
       body: SafeArea(
         bottom: false,
         child: Column(
           children: [
-            const _Header(),
+            // Sengaja TIDAK const, dan jangan diubah jadi const. Widget const
+            // dikanonikalisasi: instansinya identik tiap build, dan Flutter
+            // melewati subtree yang widget-nya identik. Semua widget di bawah
+            // ini membaca `trip`, jadi kalau di-const-kan tampilannya membeku
+            // menampilkan data basi sampai pengguna mengetuk tab.
+            _Header(),
             Expanded(
-              child: ListenableBuilder(
-                listenable: trip,
-                builder: (_, _) => switch (tab) {
-                  0 => MapScreen(onSeeSos: () => setState(() => tab = 2)),
-                  1 => const TeamScreen(),
-                  2 => const SosScreen(),
-                  3 => GroupsScreen(onOpenMap: () => setState(() => tab = 0)),
-                  _ => const TripScreen(),
-                },
-              ),
+              child: switch (tab) {
+                0 => MapScreen(onSeeSos: () => setState(() => tab = 2)),
+                1 => TeamScreen(),
+                2 => SosScreen(),
+                3 => GroupsScreen(onOpenMap: () => setState(() => tab = 0)),
+                _ => TripScreen(),
+              },
             ),
           ],
         ),
@@ -100,6 +115,135 @@ class _ShellState extends State<Shell> {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Layar pertama di pemasangan baru: belum ada grup sama sekali.
+///
+/// Dua jalan masuk saja, karena memang cuma ada dua: bikin sendiri, atau
+/// gabung pakai kode dari road captain.
+class _NoGroup extends StatelessWidget {
+  const _NoGroup();
+
+  @override
+  Widget build(BuildContext context) {
+    final p = Pal.of(context);
+    return Scaffold(
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(28),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  width: 56,
+                  height: 56,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: accent,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: const Icon(Icons.two_wheeler,
+                      size: 30, color: Color(0xFF12140F)),
+                ),
+                const SizedBox(height: 20),
+                Text('Touring Tracker',
+                    style: arch(800, 26, color: p.tx, height: 1.15)),
+                const SizedBox(height: 8),
+                Text(
+                  'Belum ada grup touring di HP ini. Buat grup sendiri sebagai '
+                  'road captain, atau gabung pakai kode yang dikirim road '
+                  'captain-mu.',
+                  textAlign: TextAlign.center,
+                  style: arch(400, 14, color: p.tx2, height: 1.6),
+                ),
+                const SizedBox(height: 24),
+                _NoGroupBtn(
+                  icon: Icons.add,
+                  label: 'Buat grup touring',
+                  primary: true,
+                  onTap: () => _create(context),
+                ),
+                const SizedBox(height: 10),
+                _NoGroupBtn(
+                  icon: Icons.download_outlined,
+                  label: 'Gabung pakai kode',
+                  primary: false,
+                  onTap: () => joinByCode(context),
+                ),
+                if (!trip.online) ...[
+                  const SizedBox(height: 20),
+                  Text(
+                    trip.cloudError ?? 'Server tidak tersambung',
+                    textAlign: TextAlign.center,
+                    style: arch(400, 12, color: warn, height: 1.5),
+                  ),
+                  Text(
+                    'Grup masih bisa dibuat, tapi belum bisa dibagikan ke '
+                    'anggota.',
+                    textAlign: TextAlign.center,
+                    style: arch(400, 12, color: p.tx2, height: 1.5),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _create(BuildContext context) async {
+    // Navigator diambil SEBELUM await. Begitu grupnya ada, Shell berganti
+    // tampilan dan layar ini dibongkar — context-nya jadi tidak sah, dan
+    // `context.mounted` akan memblokir langkah berikutnya. NavigatorState
+    // hidup di MaterialApp, jadi tetap sah.
+    final nav = Navigator.of(context);
+    final g = await nav.push<TripGroup>(
+      MaterialPageRoute(builder: (_) => const NewGroupScreen()),
+    );
+    if (g == null) return;
+    await nav.push(MaterialPageRoute(builder: (_) => GroupScreen(group: g)));
+  }
+}
+
+class _NoGroupBtn extends StatelessWidget {
+  const _NoGroupBtn({
+    required this.icon,
+    required this.label,
+    required this.primary,
+    required this.onTap,
+  });
+  final IconData icon;
+  final String label;
+  final bool primary;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = Pal.of(context);
+    final fg = primary ? const Color(0xFF12140F) : p.tx;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        decoration: BoxDecoration(
+          color: primary ? accent : p.surf,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: primary ? accent : p.line),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 20, color: fg),
+            const SizedBox(width: 8),
+            Text(label, style: arch(700, 15, color: fg)),
+          ],
         ),
       ),
     );

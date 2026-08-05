@@ -2,6 +2,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:touring_touring/data.dart';
 
+import 'fixture.dart';
+
 void main() {
   group('kode bagikan', () {
     test('bolak-balik utuh: identitas dan titik rute kembali sama', () {
@@ -31,7 +33,7 @@ void main() {
     });
 
     test('kode tetap pendek: rute 5 titik di bawah 280 karakter', () {
-      final demo = buildDemoGroup();
+      final demo = ujiGroup();
       final code = demo.shareCode;
       // Terukur 255 char untuk grup demo (versi JSON dulu ~510). Sisanya
       // hampir semuanya nama tempat; ambang ini menjaga agar overhead format
@@ -86,7 +88,7 @@ void main() {
     });
 
     test('grup di server: kode hanya membawa kunci, jauh lebih pendek', () {
-      final demo = buildDemoGroup();
+      final demo = ujiGroup();
       final lokal = demo.shareCode.length;
 
       // Grup yang sama, tapi sudah terdaftar di server.
@@ -187,7 +189,7 @@ void main() {
     });
 
     test('stopKmAt naik sepanjang rute dan aman di indeks tepi', () {
-      final demo = buildDemoGroup();
+      final demo = ujiGroup();
       expect(demo.stopKmAt(0), 0);
       expect(demo.stopKmAt(4), closeTo(demo.km, 0.001));
       for (var i = 1; i < demo.stops.length; i++) {

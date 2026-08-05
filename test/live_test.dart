@@ -121,7 +121,6 @@ void main() {
         p: .5,
         v: 40,
         batt: null,
-        stopUntil: 0,
       );
       expect(r.batt, isNull);
       // LivePos juga boleh tanpa baterai.

@@ -356,9 +356,9 @@ Firebase masuk di belakang keduanya, bukan disebar ke layar-layar.
 | `store.dart` | Tetap ada sebagai cache offline. Tambah `cloud.dart` di sebelahnya |
 | `cloud.dart` (baru) | Semua panggilan Firebase: auth, baca/tulis grup, stream `live/`, `onDisconnect` |
 | `location.dart` (baru) | Ambil GPS, saring <25 m, kirim tiap 10 detik |
-| `data.dart` | `riders` diisi dari stream `live/` alih-alih timer simulasi. Grup demo tetap pakai simulasi supaya app bisa dicoba tanpa jaringan |
+| `data.dart` | `riders` diisi dari stream `live/`. Jalur simulasi sudah dibuang seluruhnya — angkanya bocor ke rekap dan kartu bagikan |
 | `model.dart` | Tambah `gid`, `rcUid`; `geometry` disimpan sebagai encoded polyline |
-| layar-layar | Nyaris tidak berubah — `trip.live` sudah jadi penjaganya, sekarang artinya "ada data server" bukan "ini grup demo" |
+| layar-layar | `trip.live` jadi penjaganya: artinya "ada posisi dari server". Shell menampilkan onboarding kalau belum ada grup |
 
 Usul tahapan, tiap tahap berdiri sendiri dan bisa dipakai:
 

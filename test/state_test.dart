@@ -5,6 +5,8 @@ import 'package:latlong2/latlong.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:touring_touring/data.dart';
 
+import 'fixture.dart';
+
 Future<TripState> freshState() async {
   SharedPreferences.setMockInitialValues({});
   final s = TripState(random: math.Random(7));
@@ -15,16 +17,41 @@ Future<TripState> freshState() async {
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  test('pertama kali buka: grup demo tersedia dan langsung aktif', () async {
+  test('pertama kali buka: belum ada grup sama sekali', () async {
+    // Dulu di sini muncul grup demo berisi 50 rider palsu, dan angka
+    // simulasinya bocor ke rekap serta kartu bagikan yang dilihat pengguna.
     final s = await freshState();
     addTearDown(s.dispose);
 
-    expect(s.groups.length, 1);
-    expect(s.active.id, demoGroupId);
-    expect(s.active.demo, isTrue);
-    expect(s.live, isTrue, reason: 'grup demo memperagakan pelacakan live');
-    expect(s.riders.length, s.active.members.length);
-    expect(routeReady, isTrue);
+    expect(s.hasGroup, isFalse);
+    expect(s.groups, isEmpty);
+    expect(s.activeId, isNull);
+    expect(s.activeOrNull, isNull);
+    expect(s.riders, isEmpty);
+    expect(s.live, isFalse);
+    expect(routeReady, isFalse);
+    // active melempar terang-terangan, bukan mengembalikan grup kosong yang
+    // angkanya menyesatkan.
+    expect(() => s.active, throwsA(isA<StateError>()));
+  });
+
+  test('hapus grup terakhir berakhir tanpa grup, bukan diisi data palsu',
+      () async {
+    final s = await freshState();
+    addTearDown(s.dispose);
+
+    final g = await s.createGroup(
+      name: 'Satu-satunya',
+      club: 'Test MC',
+      when: DateTime(2026, 9, 1, 6, 0),
+      you: Member(name: 'A B', plat: 'N 1 AB', role: 'RC'),
+    );
+    expect(s.hasGroup, isTrue);
+
+    await s.deleteGroup(g.id);
+    expect(s.hasGroup, isFalse);
+    expect(s.activeId, isNull);
+    expect(routeReady, isFalse);
   });
 
   test('alur buat grup: jadi RC, aktif, belum siap sampai rute & anggota ada',
@@ -39,7 +66,7 @@ void main() {
       you: Member(name: 'Deden Kurnia', plat: 'n 4321 zr', role: 'RC'),
     );
 
-    expect(s.groups.length, 2);
+    expect(s.groups.length, 1);
     expect(s.activeId, g.id);
     expect(g.id, matches(RegExp(r'^[A-Z]{3}-\d{4}$')));
     expect(g.roadCaptain?.name, 'Deden Kurnia');
@@ -226,20 +253,14 @@ void main() {
     );
   });
 
-  test('hapus grup terakhir memunculkan grup demo lagi, bukan state kosong',
-      () async {
-    final s = await freshState();
-    addTearDown(s.dispose);
-
-    await s.deleteGroup(demoGroupId);
-    expect(s.groups, isNotEmpty);
-    expect(s.active.id, demoGroupId);
-  });
-
   test('ganti grup aktif menukar rute yang dipakai layar', () async {
     final s = await freshState();
     addTearDown(s.dispose);
-    final kmDemo = totalKm;
+
+    // Grup panjang disiapkan seolah sudah ada di HP.
+    pakai(s, ujiGroup());
+    final kmPanjang = totalKm;
+    expect(kmPanjang, greaterThan(40));
 
     final g = await s.createGroup(
       name: 'Pendek',
@@ -257,12 +278,10 @@ void main() {
         stopIndices: [0, 1],
         km: 2.6,
         minutes: 8);
-    expect(totalKm, lessThan(kmDemo));
+    expect(totalKm, lessThan(kmPanjang));
 
-    s.setActive(demoGroupId);
-    expect(totalKm, closeTo(kmDemo, 1e-9));
-    expect(s.live, isTrue);
-    expect(s.riders, isNotEmpty);
+    s.setActive(ujiGroupId);
+    expect(totalKm, closeTo(kmPanjang, 1e-9));
   });
 
   test('simpanan bertahan: grup dan grup aktif kembali setelah restart',
@@ -289,7 +308,7 @@ void main() {
     await s2.init();
     addTearDown(s2.dispose);
 
-    expect(s2.groups.length, 2);
+    expect(s2.groups.length, 1);
     expect(s2.activeId, id);
     expect(s2.dark, isFalse);
     final back = s2.groups.firstWhere((e) => e.id == id);
@@ -353,7 +372,7 @@ void main() {
         you: Member(name: 'A B', plat: 'N 1 AB', role: 'RC'),
       );
       expect(s.amRc(lokal), isTrue);
-      expect(s.amRc(buildDemoGroup()), isTrue);
+      expect(s.amRc(ujiGroup()), isTrue);
 
       // Grup server milik orang lain: aku bukan RC, jadi tidak boleh mengubah.
       final orangLain = TripGroup(
@@ -368,18 +387,36 @@ void main() {
     });
   });
 
-  test('SOS grup demo: aktif lalu ditutup, riwayat tercatat', () async {
+  test('SOS menandai diriku sendiri, bukan rider sembarang', () async {
+    // Dulu fireSos memilih riders[27] — indeks yang hanya masuk akal untuk
+    // grup demo berisi 50 rider palsu.
     final s = await freshState();
     addTearDown(s.dispose);
+    pakai(s, ujiGroup());
+
+    // Seolah posisiku sudah masuk dari server.
+    s.riders.add(Rider(
+      id: 0,
+      uid: s.myUid,
+      name: 'Aku',
+      plat: 'N 1 AB',
+      role: 'RIDER',
+      p: .3,
+      v: 40,
+      batt: 80,
+    ));
 
     expect(s.sosRider, isNull);
     s.fireSos();
     expect(s.sosRider, isNotNull);
-    expect(s.sosRider!.status, RiderStatus.sos);
+    expect(s.sosRider!.name, 'Aku');
+    expect(s.sosAt, isNotNull);
+    expect(s.sosFor, isNotNull);
     expect(s.logs.first.title, contains('SOS dikirim'));
 
     s.clearSos();
     expect(s.sosRider, isNull);
+    expect(s.sosAt, isNull);
     expect(s.logs.first.title, contains('SOS ditutup'));
   });
 
@@ -419,9 +456,9 @@ void main() {
       when: DateTime(2026, 9, 1, 6, 0),
       you: Member(name: 'A B', plat: 'N 1 AB', role: 'RC'),
     );
-    final sebelum = s.logs.length;
     s.fireSos();
-    expect(s.sosRider, isNull);
-    expect(s.logs.length, sebelum, reason: 'tidak ada log SOS palsu');
+    expect(s.sosRider, isNull, reason: 'tanpa posisi, SOS tidak punya lokasi');
+    expect(s.logs.first.title, contains('tidak bisa dikirim'),
+        reason: 'katakan sebabnya, jangan diam-diam gagal');
   });
 }

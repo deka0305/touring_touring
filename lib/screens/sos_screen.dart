@@ -71,6 +71,15 @@ class _ActiveSos extends StatelessWidget {
   const _ActiveSos(this.r);
   final Rider r;
 
+  /// Sudah berapa lama SOS-nya aktif, dari waktu nyata — bukan dari penghitung
+  /// simulasi seperti dulu.
+  static String _sejak(Duration? d) {
+    if (d == null) return 'baru saja';
+    final m = d.inMinutes;
+    if (m < 1) return 'baru saja';
+    return m < 60 ? '$m menit lalu' : '${fmtDur(m)} lalu';
+  }
+
   /// Checkpoint terdekat dari posisinya — jauh lebih berguna bagi penolong
   /// daripada angka KM saja, dan ikut rute grup mana pun yang aktif.
   String get _dekat {
@@ -130,7 +139,7 @@ class _ActiveSos extends StatelessWidget {
                   children: [
                     Text(r.name, style: arch(800, 17, color: Colors.white)),
                     Text(
-                      'SOS aktif · ${(trip.tick % 7).clamp(1, 7)} menit lalu',
+                      'SOS aktif · ${_sejak(trip.sosFor)}',
                       style: mono(600, 12,
                           color: Colors.white.withValues(alpha: .82),
                           height: 1.4),

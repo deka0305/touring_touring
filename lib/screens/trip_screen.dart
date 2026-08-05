@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -32,8 +30,8 @@ class TripScreen extends StatelessWidget {
       );
     }
 
-    // Prioritas: jejak GPS nyata > simulasi live > rencana. Rekap tanpa jejak
-    // nyata bukan rekap, cuma perkiraan.
+    // Prioritas: jejak GPS-ku > posisi rombongan dari server > rencana. Rekap
+    // tanpa jejak nyata bukan rekap, cuma keadaan sekarang atau perkiraan.
     final t = s.track;
     final punyaJejak = !t.isEmpty;
 
@@ -91,11 +89,13 @@ class TripScreen extends StatelessWidget {
         ] else if (!live)
           _PlanStats(group: g)
         else ...[
+          // Grup live tapi aku belum merekam: yang bisa dilaporkan adalah
+          // keadaan rombongan sekarang, bukan rekap perjalananku.
           Row(
             children: [
-              Expanded(child: _Stat('JARAK TEMPUH', km1(s.leader.km), 'km')),
+              Expanded(child: _Stat('TERDEPAN DI KM', km1(s.leader.km), '')),
               const SizedBox(width: 10),
-              Expanded(child: _Stat('DURASI', s.durText, '')),
+              Expanded(child: _Stat('RENTANG', km1(s.spread), 'km')),
             ],
           ),
           const SizedBox(height: 10),
@@ -106,18 +106,24 @@ class TripScreen extends StatelessWidget {
                       color: accent)),
               const SizedBox(width: 10),
               Expanded(
-                  child: _Stat('KEC. MAKS', '${s.topSpeed.round()}', 'km/j')),
+                  child: _Stat('TERCEPAT', '${s.topSpeed.round()}', 'km/j')),
             ],
           ),
           const SizedBox(height: 10),
           Row(
             children: [
-              Expanded(child: _Soft('RENTANG', '${km1(s.spread)} km')),
+              Expanded(child: _Soft('TERLACAK', '${s.riders.length} rider')),
               const SizedBox(width: 10),
               Expanded(child: _Soft('SISA', '± ${s.etaMin} menit')),
               const SizedBox(width: 10),
               Expanded(child: _Soft('BERHENTI', '${s.stopCount} rider')),
             ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'Tekan MULAI di tab Peta untuk merekam perjalananmu sendiri — '
+            'jarak, durasi, dan kecepatan akan dihitung dari jejak GPS.',
+            style: arch(400, 12, color: p.tx2, height: 1.5),
           ),
         ],
         const SizedBox(height: 22),
@@ -291,17 +297,14 @@ class _CheckpointRow extends StatelessWidget {
       // Ada jejak, tapi titik ini tidak pernah didekati.
       done = false;
       time = '—';
-    } else if (live && trip.leader.km >= km) {
-      done = true;
-      final m = trip.startMinute +
-          (trip.elapsedMin * (km / math.max(.1, trip.leader.km))).round();
-      time = '${(m ~/ 60).toString().padLeft(2, "0")}:'
-          '${(m % 60).toString().padLeft(2, "0")}';
-    } else if (!live && group.km > 0) {
-      done = false;
-      final m = trip.startMinute + (group.minutes * (km / group.km)).round();
-      time = '${((m ~/ 60) % 24).toString().padLeft(2, "0")}:'
-          '${(m % 60).toString().padLeft(2, "0")}';
+    } else if (group.km > 0) {
+      // Belum ada jejak: jam perkiraan dari jadwal berangkat + porsi durasi
+      // rute. Tidak ada lagi jalur yang memakai jam simulasi — dulu jalur itu
+      // menghasilkan jam lintas karangan untuk grup nyata.
+      done = live && trip.leader.km >= km;
+      final at = group.when
+          .add(Duration(minutes: (group.minutes * (km / group.km)).round()));
+      time = fmtClock(at);
     } else {
       done = false;
       time = '—';

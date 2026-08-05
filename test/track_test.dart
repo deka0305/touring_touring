@@ -3,6 +3,8 @@ import 'package:latlong2/latlong.dart';
 import 'package:touring_touring/data.dart';
 import 'package:touring_touring/share_card.dart';
 
+import 'fixture.dart';
+
 /// Titik [m] meter di utara [from] — cukup teliti untuk jarak sependek ini.
 LatLng utara(LatLng from, double m) =>
     LatLng(from.latitude + m / 111320, from.longitude);
@@ -96,12 +98,12 @@ void main() {
     test('tanpa jejak: pakai rute rencana dan tandai fromTrack false', () {
       // Penting: kalau ini salah, kartu mengaku "sudah dilalui" padahal yang
       // digambar cuma rencana.
-      setRoute(buildDemoGroup().geometry,
+      setRoute(ujiGroup().geometry,
           [const Waypoint(0, 'A'), const Waypoint(18, 'B')]);
       final s = TripState();
       addTearDown(s.dispose);
-      s.groups.add(buildDemoGroup());
-      s.activeId = demoGroupId;
+      s.groups.add(ujiGroup());
+      s.activeId = ujiGroupId;
 
       final stats = ShareStats.of(s, source: ShareSource.rute);
       expect(stats.fromTrack, isFalse);

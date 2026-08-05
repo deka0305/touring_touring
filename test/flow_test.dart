@@ -5,6 +5,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:touring_touring/data.dart';
 import 'package:touring_touring/main.dart';
 
+import 'fixture.dart';
+
 /// Alur navigasi lengkap: buat grup, kelola anggota, hapus grup, susun rute.
 /// Error `_dependents.isEmpty` muncul saat pembongkaran tree, jadi jalur
 /// push/pop harus benar-benar dijalankan, bukan cuma layarnya dirender.
@@ -12,6 +14,9 @@ void main() {
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
     await trip.init();
+    // Shell menampilkan onboarding kalau belum ada grup; alur di sini menguji
+    // navigasi di dalam shell, jadi satu grup disiapkan lebih dulu.
+    pakai(trip, ujiGroup(id: 'AWL-0001', name: 'Grup Awal'));
   });
   void phone(WidgetTester tester) {
     tester.view
@@ -356,8 +361,9 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
       expect(tester.takeException(), isNull, reason: 'tab $tab');
     }
-    // "Pakai" hanya muncul di grup non-aktif, jadi grup demo kini yang aktif.
-    expect(trip.activeId, demoGroupId);
+    // "Pakai" hanya muncul di grup non-aktif, jadi grup yang tadinya pasif
+    // sekarang yang aktif — bukan grup yang baru dibuat.
+    expect(trip.activeId, 'AWL-0001');
     expect(g.id, isNot(trip.activeId));
     trip.pause();
   });
