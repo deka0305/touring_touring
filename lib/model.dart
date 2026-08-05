@@ -12,7 +12,10 @@ const kWarn = 0xFFFFC043;
 const kGrey = 0xFF8B95A3;
 const kBad = 0xFFFF3B30;
 
-const _dist = Distance();
+// roundResult:false WAJIB. Default Distance() membulatkan hasilnya ke satuan
+// bulat, jadi as(Kilometer) pada segmen 40 m mengembalikan 0 — dan rute hasil
+// snap ke jalan punya titik tiap ~40 m, sehingga total jaraknya jadi 0 km.
+const _dist = Distance(roundResult: false);
 
 /// Satu tujuan yang dipilih pengguna. Ini sumber kebenaran rute — geometri
 /// jalan cuma hasil turunan dari mesin rute, jadi kode bagikan cukup memuat
@@ -162,6 +165,15 @@ class TripGroup {
 
   bool get onCloud => gid != null;
 
+  /// Anggota yang dikeluarkan: uid → nama, **hanya di HP ini**.
+  ///
+  /// Server memang punya `banned/{uid}`, tapi Rules membatasi nilainya ke
+  /// boolean sehingga namanya tidak bisa ikut disimpan. Nama disimpan di sini
+  /// supaya road captain melihat siapa yang dicekal, bukan sederet uid. Cuma RC
+  /// yang boleh membatalkan cekalan, dan RC itu orang yang mengeluarkannya —
+  /// jadi HP-nya memang HP yang tepat untuk menyimpan daftar ini.
+  final banned = <String, String>{};
+
   List<Stop> stops;
 
   /// Geometri jalan dari mesin rute. Kosong berarti rute belum disusun.
@@ -228,6 +240,10 @@ class TripGroup {
     minutes = other.minutes;
     mode = other.mode;
     members = other.members;
+    // `banned` sengaja TIDAK disalin. Daftar itu hanya ada di HP ini: server
+    // menyimpan cekalan sebagai `banned/{uid}: true` tanpa nama (Rules-nya
+    // memang membatasi nilainya ke boolean), jadi salinan server selalu kosong
+    // dan menyalinnya akan menghapus nama-namanya tiap snapshot masuk.
   }
 
   /// Untuk cache lokal. Geometri disimpan sebagai encoded polyline — bentuk
@@ -246,6 +262,7 @@ class TripGroup {
         'min': minutes,
         'mode': mode.key,
         'members': [for (final m in members) m.toJson()],
+        if (banned.isNotEmpty) 'banned': banned,
       };
 
   static TripGroup fromJson(Map<String, dynamic> j) => TripGroup(
@@ -268,7 +285,10 @@ class TripGroup {
           for (final m in (j['members'] as List))
             Member.fromJson(m as Map<String, dynamic>),
         ],
-      );
+      )..banned.addAll({
+          for (final e in (j['banned'] as Map? ?? const {}).entries)
+            e.key as String: e.value as String,
+        });
 
   /// Kode gabung. Bidang dipisah `|`, waktu jadi menit-epoch, lalu di-base64url
   /// supaya jadi satu blob yang aman disalin lewat WhatsApp.
@@ -498,6 +518,21 @@ class Rider {
 
   /// Sejak kapan posisinya tidak diperbarui.
   Duration? staleness;
+}
+
+/// Jejak yang sudah dilalui satu anggota, apa adanya dari server.
+///
+/// Beda dari [Track] milik sendiri: yang ini cuma untuk digambar, jadi tidak
+/// membawa waktu per-titik maupun kecepatan maksimum. Rekap tetap dihitung dari
+/// jejak sendiri, karena hanya jejak itu yang lengkap.
+class MateTrack {
+  const MateTrack({required this.points, required this.km, required this.atMs});
+
+  final List<LatLng> points;
+  final double km;
+
+  /// Kapan terakhir diperbarui, milidetik epoch.
+  final int atMs;
 }
 
 /// Satu kiriman posisi dari HP anggota, apa adanya dari server.

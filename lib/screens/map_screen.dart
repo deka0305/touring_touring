@@ -39,6 +39,12 @@ class _MapScreenState extends State<MapScreen> {
     super.dispose();
   }
 
+  /// False selama FlutterMap belum sekali pun digambar. MapController melempar
+  /// exception kalau kameranya dibaca sebelum itu — dan itu benar-benar terjadi:
+  /// grup tanpa rute menampilkan layar pengganti (tanpa peta), lalu posisi
+  /// pertama masuk dan langsung memicu _fit().
+  bool _mapReady = false;
+
   void _onTick() {
     if (_follow && mounted && trip.live) _fit();
   }
@@ -46,6 +52,7 @@ class _MapScreenState extends State<MapScreen> {
   /// Bingkai leader + sweeper. Hanya digeser kalau salah satu keluar frame,
   /// biar peta nggak "gelisah" tiap kiriman posisi.
   void _fit({bool force = false}) {
+    if (!_mapReady) return;
     if (!trip.live) return _fitRoute();
     final cam = _ctrl.camera;
     final inset = 70.0;
@@ -143,7 +150,13 @@ class _MapScreenState extends State<MapScreen> {
     final p = Pal.of(context);
     final live = trip.live;
     final sosR = live ? trip.sosRider : null;
-    if (!routeReady) {
+    // Layar pengganti ini hanya dipakai kalau memang tidak ada apa pun untuk
+    // digambar. Kalau ada posisi rider, petanya harus tampil walau rutenya
+    // belum disusun — melacak anggota tidak butuh rute, dan dulu syarat
+    // `!routeReady` di sini menyembunyikan seluruh rombongan.
+    if (!routeReady && !live) {
+      // FlutterMap dilepas di cabang ini, jadi kameranya tidak sah lagi.
+      _mapReady = false;
       // Tombol MULAI tetap ada di sini. Merekam jejak GPS tidak butuh rute —
       // dulu tombolnya hanya hidup di dalam peta, dan peta ini menggantikannya
       // seluruhnya, jadi GPS tidak bisa dinyalakan sama sekali sebelum rute
@@ -169,13 +182,21 @@ class _MapScreenState extends State<MapScreen> {
               FlutterMap(
                 mapController: _ctrl,
                 options: MapOptions(
-                  initialCenter: pointAt(0.575),
+                  // Tanpa rute, pointAt() memberi LatLng(0,0) — Teluk Guinea,
+                  // ribuan km dari rombongan. Pakai posisi rider kalau ada.
+                  initialCenter: routeReady
+                      ? pointAt(0.575)
+                      : trip.riders.first.pos,
                   initialZoom: 12.6,
                   interactionOptions: const InteractionOptions(
                     flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
                   ),
                   onPositionChanged: (_, hasGesture) {
                     if (hasGesture && _follow) setState(() => _follow = false);
+                  },
+                  onMapReady: () {
+                    _mapReady = true;
+                    _fit(force: true);
                   },
                 ),
                 children: [
@@ -190,7 +211,11 @@ class _MapScreenState extends State<MapScreen> {
                     // Rute rencana. Diredupkan saat jejak ditampilkan supaya
                     // jejaknya yang menonjol, tapi tidak pernah disembunyikan:
                     // rutenya masih dipakai untuk tahu arah.
-                    if (_showRoute) ...[
+                    // `routeReady` wajib: dulu build() keluar lebih awal saat
+                    // rute kosong, jadi ini aman. Sekarang peta juga tampil
+                    // tanpa rute, dan Polyline berisi list kosong membuat
+                    // flutter_map gagal assert.
+                    if (_showRoute && routeReady) ...[
                       Polyline(
                         points: route,
                         strokeWidth: 9,
@@ -204,6 +229,18 @@ class _MapScreenState extends State<MapScreen> {
                             : accent,
                       ),
                     ],
+                    // Jejak anggota lain, digambar LEBIH DULU supaya jejakku
+                    // sendiri ada di atasnya. Warnanya sama-sama hijau tapi
+                    // lebih pudar dan lebih tipis: yang penting terbaca "ini
+                    // jalur yang sudah dilewati rombongan", bukan siapa persisnya
+                    // — untuk itu ada markernya.
+                    if (_showTrack)
+                      for (final t in trip.mateTracks.values)
+                        Polyline(
+                          points: t.points,
+                          strokeWidth: 3,
+                          color: ok.withValues(alpha: .38),
+                        ),
                     // Jejak GPS yang benar-benar dilalui. Hijau, jadi bedanya
                     // dengan rute rencana yang oranye terbaca sekilas.
                     if (_showTrack && trip.track.points.length >= 2) ...[
@@ -245,10 +282,18 @@ class _MapScreenState extends State<MapScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(live ? 'RENTANG ROMBONGAN' : 'PANJANG RUTE',
+                          // Rentang rombongan diukur di sepanjang rute, jadi
+                          // tanpa rute angkanya selalu 0 — tampilkan panjang
+                          // rute (yang juga 0) daripada angka bohong.
+                          Text(
+                              live && routeReady
+                                  ? 'RENTANG ROMBONGAN'
+                                  : 'PANJANG RUTE',
                               style: mono(500, 10, color: p.tx2, spacing: 1.2)),
                           Text.rich(TextSpan(
-                            text: km1(live ? trip.spread : trip.active.km),
+                            text: km1(live && routeReady
+                                ? trip.spread
+                                : trip.active.km),
                             style: arch(800, 20, color: p.tx),
                             children: [
                               TextSpan(
@@ -299,9 +344,13 @@ class _MapScreenState extends State<MapScreen> {
                           : 'Tampilkan rute rencana',
                       onTap: () => setState(() => _showRoute = !_showRoute),
                     ),
-                    // Hanya ditawarkan kalau jejaknya memang ada — tombol yang
-                    // tidak mengubah apa pun cuma membingungkan.
-                    if (trip.track.points.length >= 2) ...[
+                    // Hanya ditawarkan kalau ada jejak untuk disembunyikan —
+                    // tombol yang tidak mengubah apa pun cuma membingungkan.
+                    // Jejak anggota lain ikut dihitung: anggota yang belum
+                    // merekam apa pun tetap perlu bisa menyembunyikan jalur
+                    // rombongan kalau petanya jadi penuh.
+                    if (trip.track.points.length >= 2 ||
+                        trip.mateTracks.isNotEmpty) ...[
                       const SizedBox(height: 8),
                       _MapButton(
                         icon: Icons.timeline,
@@ -1045,7 +1094,10 @@ class _Sheet extends StatelessWidget {
             children: [
               Expanded(
                 child: _MiniStat(
-                  label: 'ROAD CAPTAIN',
+                  // "ROAD CAPTAIN" itu jabatan, sedangkan ini dihitung dari
+                  // posisi. Kalau RC-nya tertinggal, label lama menempelkan
+                  // namanya ke orang lain.
+                  label: 'DI DEPAN',
                   value: trip.leader.name.split(' ').first,
                   note: '${trip.leader.v.round()} km/j',
                   noteColor: ok,
@@ -1054,9 +1106,16 @@ class _Sheet extends StatelessWidget {
               const SizedBox(width: 10),
               Expanded(
                 child: _MiniStat(
-                  label: 'SWEEPER',
-                  value: trip.sweeper.name.split(' ').first,
-                  note: '${km1(trip.spread)} km di belakang',
+                  label: 'PALING BELAKANG',
+                  // Dengan satu rider terlacak, yang terdepan dan terbelakang
+                  // adalah orang yang sama — menampilkan namanya dua kali
+                  // terbaca seolah ada dua rider.
+                  value: trip.riders.length < 2
+                      ? '—'
+                      : trip.sweeper.name.split(' ').first,
+                  note: trip.riders.length < 2
+                      ? 'baru 1 rider terlacak'
+                      : '${km1(trip.spread)} km di belakang',
                   noteColor: warn,
                 ),
               ),

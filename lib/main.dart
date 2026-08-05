@@ -311,9 +311,14 @@ class _Header extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: arch(700, 16, color: p.tx)),
                 Text(
-                  trip.live
-                      ? 'KM ${trip.leader.km.round()} / ${totalKm.round()} · '
-                          '± ${trip.etaMin} mnt lagi'
+                  // Progres dan ETA dihitung sepanjang rute; tanpa rute
+                  // keduanya nol dan hanya menyesatkan.
+                  // Dipendekkan: bentuk panjangnya ("KM 12 / 47 · ± 68 mnt
+                  // lagi") tidak muat di sebelah tiga chip status dan
+                  // terpotong jadi "± 0 mnt…".
+                  trip.live && routeReady
+                      ? 'KM ${trip.leader.km.round()}/${totalKm.round()} · '
+                          '±${trip.etaMin}mnt'
                       : '${g.id} · ${g.members.length} rider'
                           '${g.hasRoute ? " · ${km1(g.km)} km" : " · rute belum ada"}',
                   maxLines: 1,
@@ -326,7 +331,14 @@ class _Header extends StatelessWidget {
           if (trip.live) ...[
             _StatChip(trip.count(RiderStatus.aman), ok),
             const SizedBox(width: 6),
-            _StatChip(trip.count(RiderStatus.tertinggal), warn),
+            // Gabungan, bukan hanya "tertinggal": dulu rider berstatus HILANG
+            // atau SOS tidak terhitung di chip mana pun, jadi angkanya tidak
+            // pernah berjumlah sebanyak rider yang terlacak.
+            _StatChip(
+                trip.count(RiderStatus.tertinggal) +
+                    trip.count(RiderStatus.hilang) +
+                    trip.count(RiderStatus.sos),
+                warn),
             const SizedBox(width: 6),
             _StatChip(trip.count(RiderStatus.berhenti), p.tx2, flat: true),
           ],

@@ -41,7 +41,7 @@ TripGroup ujiGroup({
   TripMode mode = TripMode.motor,
   List<Member>? members,
 }) {
-  const d = Distance();
+  const d = Distance(roundResult: false);
   var km = 0.0;
   for (var i = 0; i < ujiGeometry.length - 1; i++) {
     km += d.as(LengthUnit.Kilometer, ujiGeometry[i], ujiGeometry[i + 1]);

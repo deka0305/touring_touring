@@ -93,11 +93,14 @@ class HelpScreen extends StatelessWidget {
                 Text('Yang belum bisa', style: arch(700, 14, color: warn)),
                 const SizedBox(height: 6),
                 Text(
-                  'Lokasi tetap terkirim saat layar mati belum bisa — Android '
-                  'menghentikannya beberapa menit setelah layar padam. Untuk '
-                  'sekarang HP harus di dudukan dengan app terbuka.\n\n'
-                  'Notifikasi SOS ke HP yang app-nya tertutup juga belum bisa. '
-                  'HT atau telepon tetap jalur darurat utama.',
+                  'Perekaman berhenti kalau app-nya ditutup paksa (di-swipe '
+                  'dari daftar app terbaru) atau dimatikan penghemat baterai. '
+                  'Selama merekam ada notifikasi "Merekam perjalanan" — kalau '
+                  'notifikasi itu hilang padahal belum ditekan STOP, jejaknya '
+                  'terputus.\n\n'
+                  'SOS sampai ke anggota lain hanya kalau app mereka sedang '
+                  'terbuka. Notifikasi ke HP yang app-nya tertutup belum bisa, '
+                  'jadi HT atau telepon tetap jalur darurat utama.',
                   style: arch(400, 13, color: p.tx2, height: 1.5),
                 ),
               ],

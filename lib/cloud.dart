@@ -208,10 +208,53 @@ class Cloud {
     return _parse(gid, snap.value);
   }
 
-  /// Ikuti perubahan grup: anggota masuk, rute diubah RC, detail diedit.
-  Stream<TripGroup> watchGroup(String gid) =>
-      _need(gid).onValue.map((e) => _parse(gid, e.snapshot.value)).where(
-          (g) => g.name.isNotEmpty);
+  /// Bagian `groups/$gid` yang membentuk rencana grup. Sengaja disebut satu per
+  /// satu, dan JANGAN diganti dengan mengawasi `groups/$gid` utuh.
+  ///
+  /// `live/`, `track/`, dan `sos/` juga anak dari node itu, dan masing-masing
+  /// sudah punya pengawas sendiri. Mengawasi node utuh berarti tiap kiriman
+  /// posisi — 6 kali per menit per anggota — mengirim ulang seluruh geometri
+  /// rute dan semua jejak ke setiap anggota. Untuk rombongan 5 orang di rute
+  /// 100 km itu ratusan MB per jam, dan tiap kiriman juga memicu `_activate()`
+  /// yang membangun ulang ketiga pengawas tadi sehingga datanya diunduh lagi.
+  static const _planParts = ['meta', 'stops', 'route', 'members'];
+
+  /// Ikuti perubahan rencana grup: anggota masuk, rute diubah RC, detail diedit.
+  ///
+  /// Potongan terakhir tiap bagian disimpan lalu disusun kembali jadi bentuk
+  /// yang sama seperti node utuh, jadi [_parse] tidak perlu tahu bedanya.
+  Stream<TripGroup> watchGroup(String gid) {
+    final ref = _need(gid);
+    final parts = <String, Object?>{};
+    final subs = <StreamSubscription<DatabaseEvent>>[];
+    late StreamController<TripGroup> ctrl;
+    ctrl = StreamController<TripGroup>(
+      onListen: () {
+        for (final key in _planParts) {
+          subs.add(ref.child(key).onValue.listen(
+            (e) {
+              parts[key] = e.snapshot.value;
+              // Tunggu keempat bagian sampai dulu. Kalau tidak, potongan
+              // pertama menghasilkan grup setengah jadi — mis. rute ada tapi
+              // stops belum — dan itu ikut ditimpakan ke salinan lokal serta
+              // disimpan ke cache.
+              if (parts.length < _planParts.length) return;
+              final g = _parse(gid, parts);
+              if (g.name.isNotEmpty) ctrl.add(g);
+            },
+            onError: ctrl.addError,
+          ));
+        }
+      },
+      onCancel: () async {
+        for (final s in subs) {
+          await s.cancel();
+        }
+        subs.clear();
+      },
+    );
+    return ctrl.stream;
+  }
 
   /// Bergabung: tulis diri sebagai anggota lebih dulu (Rules mengizinkan itu
   /// tanpa keanggotaan sebelumnya), baru grupnya bisa dibaca.
@@ -274,6 +317,66 @@ class Cloud {
             atMs: (v['t'] as num?)?.toInt() ?? 0,
             online: v['online'] as bool? ?? false,
           );
+        }
+        return out;
+      });
+
+  // ── Jejak yang sudah dilalui ─────────────────────────────────────────────
+
+  /// Kirim jejakku. Seluruh garis ditulis ulang, bukan ditambahkan sepotong:
+  /// polyline itu satu string, dan menyusunnya dari potongan menuntut urutan
+  /// yang utuh — satu potongan hilang membuat sisanya tidak bisa dibaca.
+  /// Karena itu pemanggilnya wajib membatasi frekuensinya.
+  Future<void> putTrack(String gid, List<LatLng> points, double km) =>
+      _need(gid).child('track/$_uid').set({
+        'geom': encodePolyline(points),
+        'km': km,
+        't': DateTime.now().millisecondsSinceEpoch,
+      });
+
+  Future<void> clearTrack(String gid) =>
+      _need(gid).child('track/$_uid').remove();
+
+  /// Jejak semua anggota, di-key oleh uid.
+  Stream<Map<String, MateTrack>> watchTracks(String gid) =>
+      _need(gid).child('track').onValue.map((e) {
+        final out = <String, MateTrack>{};
+        for (final entry in _map(e.snapshot.value).entries) {
+          final v = _map(entry.value);
+          final pts = decodePolyline(v['geom'] as String? ?? '');
+          if (pts.length < 2) continue;
+          out[entry.key] = MateTrack(
+            points: pts,
+            km: (v['km'] as num?)?.toDouble() ?? 0,
+            atMs: (v['t'] as num?)?.toInt() ?? 0,
+          );
+        }
+        return out;
+      });
+
+  // ── SOS ──────────────────────────────────────────────────────────────────
+  // Rules sudah mengizinkan `sos/{uid}` ditulis oleh yang bersangkutan atau
+  // oleh road captain, dan tidak membatasi bentuk nilainya — jadi bagian ini
+  // tidak butuh perubahan Rules. Nilainya cuma waktu (ms) supaya anggota lain
+  // tahu sudah berapa lama, dan cukup satu penulisan.
+
+  /// Umumkan aku butuh bantuan.
+  Future<void> putSos(String gid) => _need(gid)
+      .child('sos/$_uid')
+      .set(DateTime.now().millisecondsSinceEpoch);
+
+  /// Tutup SOS. [uid] boleh milik orang lain kalau aku road captain — Rules
+  /// yang menegakkannya, bukan kode ini.
+  Future<void> clearSos(String gid, String uid) =>
+      _need(gid).child('sos/$uid').remove();
+
+  /// uid → kapan SOS-nya dinyalakan (ms). Kosong berarti semua aman.
+  Stream<Map<String, int>> watchSos(String gid) =>
+      _need(gid).child('sos').onValue.map((e) {
+        final out = <String, int>{};
+        for (final entry in _map(e.snapshot.value).entries) {
+          final ms = (entry.value as num?)?.toInt();
+          if (ms != null) out[entry.key] = ms;
         }
         return out;
       });

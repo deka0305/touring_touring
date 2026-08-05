@@ -15,7 +15,10 @@ export 'location.dart' show LocationShareResult;
 export 'model.dart';
 export 'track.dart';
 
-const _dist = Distance();
+// roundResult:false WAJIB. Default Distance() membulatkan hasilnya ke satuan
+// bulat, jadi as(Kilometer) pada segmen 40 m mengembalikan 0 — dan rute hasil
+// snap ke jalan punya titik tiap ~40 m, sehingga total jaraknya jadi 0 km.
+const _dist = Distance(roundResult: false);
 
 // ── Rute aktif ──────────────────────────────────────────────────────────────
 // Cache geometri grup aktif. Semua layar peta/rekap membaca dari sini; diisi
@@ -112,8 +115,13 @@ class TripState extends ChangeNotifier {
   /// ditampilkan — RC justru perlu tahu siapa yang belum menyalakan lokasi.
   final untracked = <Member>[];
 
-  /// id rider yang sedang SOS, dan sejak kapan.
-  int? sos;
+  /// uid rider yang sedang minta bantuan, dan sejak kapan.
+  ///
+  /// Sengaja uid, BUKAN `Rider.id`. Rider.id itu indeks yang dibuat ulang tiap
+  /// kiriman posisi dan hanya mencakup anggota yang sedang terlacak — begitu
+  /// ada yang berhenti berbagi lokasi, indeksnya bergeser dan tanda SOS-nya
+  /// pindah ke orang lain.
+  String? sosUid;
   DateTime? sosAt;
 
   /// Muat cache lokal lalu sambungkan ke server. Panggil sebelum runApp.
@@ -134,7 +142,7 @@ class TripState extends ChangeNotifier {
     riders.clear();
     untracked.clear();
     _tracks.clear();
-    sos = null;
+    sosUid = null;
     clearRoute();
 
     final saved = await loadState();
@@ -252,6 +260,7 @@ class TripState extends ChangeNotifier {
     _log('Akses ke "${g.name}" dicabut',
         'Kamu dikeluarkan dari grup, atau grupnya dihapus road captain', kWarn);
     groups.remove(g);
+    _tracks.remove(g.id);
     _reseat();
     _persist();
     notifyListeners();
@@ -294,6 +303,11 @@ class TripState extends ChangeNotifier {
       untracked.clear();
       _liveSub?.cancel();
       _liveSub = null;
+      _sosSub?.cancel();
+      _sosSub = null;
+      _trackSub?.cancel();
+      _trackSub = null;
+      mateTracks.clear();
       _timer?.cancel();
       _timer = null;
       clearRoute();
@@ -313,6 +327,18 @@ class TripState extends ChangeNotifier {
     if (_disposed) return;
     _disposed = true;
     pause();
+    // Langganan ikut ditutup di sini, bukan di pause(): pause hanya menghentikan
+    // penyegar status dan dipakai saat app ke latar belakang.
+    _liveSub?.cancel();
+    _liveSub = null;
+    _sosSub?.cancel();
+    _sosSub = null;
+    _trackSub?.cancel();
+    _trackSub = null;
+    for (final s in _subs) {
+      s.cancel();
+    }
+    _subs.clear();
     super.dispose();
   }
 
@@ -348,7 +374,13 @@ class TripState extends ChangeNotifier {
 
   /// True kalau ada posisi rider dari server yang bisa ditampilkan. Layar
   /// peta/tim/rekap memakai ini untuk memilih antara tampilan live dan rencana.
-  bool get live => routeReady && riders.isNotEmpty;
+  ///
+  /// Sengaja TIDAK menyertakan [routeReady]. Marker digambar di posisi GPS asli
+  /// ([Rider.pos]), jadi melacak anggota sama sekali tidak butuh rute — dan
+  /// dulu syarat itu membuat rombongan tidak pernah muncul di peta pada grup
+  /// yang rutenya belum disusun. Angka yang memang butuh rute (rentang
+  /// rombongan, ETA, progres) menjaga dirinya sendiri dengan [routeReady].
+  bool get live => riders.isNotEmpty;
 
   void setActive(String id) {
     if (!groups.any((g) => g.id == id)) return;
@@ -375,16 +407,33 @@ class TripState extends ChangeNotifier {
     _timer = null;
     _liveSub?.cancel();
     _liveSub = null;
+    _sosSub?.cancel();
+    _sosSub = null;
+    _trackSub?.cancel();
+    _trackSub = null;
+    mateTracks.clear();
     _livePos.clear();
-    sos = null;
+    sosUid = null;
     sosAt = null;
-    if (!routeReady) return;
     if (g.onCloud) _startLiveFeed(g);
   }
 
   // ── Lokasi live ───────────────────────────────────────────────────────────
 
   StreamSubscription<Map<String, LivePos>>? _liveSub;
+  StreamSubscription<Map<String, int>>? _sosSub;
+  StreamSubscription<Map<String, MateTrack>>? _trackSub;
+
+  /// Jejak anggota lain, uid → garis yang sudah dilalui. Jejakku sendiri TIDAK
+  /// di sini — itu ada di [track], yang lebih lengkap dan tidak perlu menunggu
+  /// perjalanan bolak-balik ke server.
+  final mateTracks = <String, MateTrack>{};
+
+  /// Nama untuk uid, dari daftar anggota grup aktif. Dipakai peta untuk memberi
+  /// label jejak orang lain.
+  String mateName(String uid) =>
+      activeOrNull?.members.where((m) => m.uid == uid).firstOrNull?.name ??
+      'Anggota';
   final _livePos = <String, LivePos>{};
   LocationSharer? _sharer;
 
@@ -409,6 +458,16 @@ class TripState extends ChangeNotifier {
       },
       onError: (Object e) => debugPrint('cloud: live feed gagal ($e)'),
     );
+    // SOS dari anggota lain. Aliran terpisah dari `live/` supaya SOS tetap
+    // sampai walau posisinya belum/tidak dikirim.
+    _sosSub = cloud.watchSos(g.gid!).listen(
+      applySos,
+      onError: (Object e) => debugPrint('cloud: feed SOS gagal ($e)'),
+    );
+    _trackSub = cloud.watchTracks(g.gid!).listen(
+      applyMateTracks,
+      onError: (Object e) => debugPrint('cloud: feed jejak gagal ($e)'),
+    );
     // Status "hilang" bergantung pada umur data, jadi harus dihitung ulang
     // walau tidak ada kiriman baru — kalau tidak, rider yang mati sinyalnya
     // akan terlihat aman selamanya.
@@ -417,6 +476,64 @@ class TripState extends ChangeNotifier {
       _rebuildRidersFromLive();
       notifyListeners();
     });
+  }
+
+  /// Terapkan jejak anggota lain dari server.
+  ///
+  /// Jejak sendiri dibuang dari daftar: [track] lokal selalu lebih baru daripada
+  /// yang sudah sampai ke server, dan menggambar keduanya membuat garis ganda
+  /// yang ujungnya beda.
+  @visibleForTesting
+  void applyMateTracks(Map<String, MateTrack> masuk) {
+    final aku = myUid;
+    mateTracks
+      ..clear()
+      ..addAll({
+        for (final e in masuk.entries)
+          if (e.key != aku) e.key: e.value,
+      });
+    notifyListeners();
+  }
+
+  /// Terapkan daftar SOS dari server.
+  ///
+  /// Yang ditampilkan hanya satu: **yang paling dulu menekan**. Layar SOS dan
+  /// spanduk peta memang dibuat untuk satu orang, dan menampilkan yang terbaru
+  /// akan menutupi orang pertama yang mungkin justru keadaannya lebih berat.
+  @visibleForTesting
+  void applySos(Map<String, int> aktif) {
+    final sebelum = sosUid;
+    if (aktif.isEmpty) {
+      sosUid = null;
+      sosAt = null;
+    } else {
+      final urut = aktif.entries.toList()
+        ..sort((a, b) => a.value.compareTo(b.value));
+      sosUid = urut.first.key;
+      sosAt = DateTime.fromMillisecondsSinceEpoch(urut.first.value);
+    }
+    if (sosUid != sebelum && sosUid != null && sosUid != myUid) {
+      final nama = active.members
+              .where((m) => m.uid == sosUid)
+              .firstOrNull
+              ?.name ??
+          'Seorang anggota';
+      _log('$nama minta bantuan', 'Buka tab SOS untuk lokasinya', kBad);
+    }
+    _relabelLive(DateTime.now());
+    notifyListeners();
+  }
+
+  /// Masukkan posisi seolah datang dari server. Hanya untuk tes — jalur
+  /// aslinya butuh Firebase hidup, dan tanpa seam ini bug "rombongan tidak
+  /// muncul di peta" tidak bisa dijaga oleh tes apa pun.
+  @visibleForTesting
+  void applyLive(Map<String, LivePos> pos) {
+    _livePos
+      ..clear()
+      ..addAll(pos);
+    _rebuildRidersFromLive();
+    notifyListeners();
   }
 
   /// Susun daftar rider dari anggota grup + posisi terakhir mereka.
@@ -429,7 +546,6 @@ class TripState extends ChangeNotifier {
     final g = active;
     riders.clear();
     untracked.clear();
-    if (!routeReady) return;
 
     final now = DateTime.now();
     var i = 0;
@@ -480,7 +596,7 @@ class TripState extends ChangeNotifier {
     for (final r in riders) {
       r.behindKm = (lead - r.p) * totalKm;
       final pos = r.uid == null ? null : _livePos[r.uid];
-      r.status = sos == r.id
+      r.status = sosUid != null && sosUid == r.uid
           ? RiderStatus.sos
           : (pos != null && pos.stale(now))
               ? RiderStatus.hilang
@@ -498,6 +614,46 @@ class TripState extends ChangeNotifier {
   Track get track => _tracks.putIfAbsent(active.id, Track.new);
   final _tracks = <String, Track>{};
 
+  /// Kirim jejakku supaya anggota lain bisa melihat jalur yang sudah kulalui.
+  ///
+  /// Diam-diam gagal kalau grupnya lokal atau server tidak terjangkau: jejaknya
+  /// tetap utuh di HP ini, dan kiriman berikutnya membawa keseluruhannya. Tidak
+  /// perlu diributkan ke pengguna tiap 2 km.
+  void _pushTrack() {
+    final g = activeOrNull;
+    if (g == null || !g.onCloud) return;
+    final cloud = _cloud;
+    if (cloud == null || !cloud.ready) return;
+    final t = track;
+    if (t.points.length < 2) return;
+    cloud.putTrack(g.gid!, t.points, t.km).catchError(
+        (Object e) => debugPrint('cloud: kirim jejak gagal ($e)'));
+  }
+
+  /// Catat satu fix GPS ke jejak grup aktif.
+  ///
+  /// Dipisah dari [startRecording] supaya bisa diuji: jalur aslinya lewat
+  /// geolocator, yang tidak ada di lingkungan tes.
+  @visibleForTesting
+  void recordFix(LatLng at, double speedKmh, DateTime now) {
+    final sebelum = track.points.length;
+    track.add(at, speedKmh, now);
+    final titik = track.points.length;
+    // Jejak disimpan berkala, bukan tiap fix: tulis-ulang blob penuh tiap
+    // 10 detik itu pemborosan. Tiap ~1 km cukup — kalau app mati mendadak,
+    // yang hilang paling satu kilometer terakhir.
+    if (titik % 5 == 0) _persist();
+    // Dikirim ke anggota lain lebih jarang lagi (~2 km), dan hanya saat titiknya
+    // benar-benar bertambah. Sekali kirim menulis ulang SELURUH garis, jadi
+    // frekuensinya yang menentukan biaya kuota — bukan panjang perjalanannya.
+    if (titik > sebelum && titik % 10 == 0) _pushTrack();
+    // WAJIB. Angka berjalan di tombol STOP dan garis jejak di peta hanya ikut
+    // berubah kalau ada pemberitahuan. Tanpa ini keduanya membeku di "MENUNGGU
+    // SINYAL GPS…" selama grupnya tidak di server — grup di server kebetulan
+    // tertolong oleh gema posisi yang datang balik dari `live/`.
+    notifyListeners();
+  }
+
   /// Nyalakan berbagi lokasi untuk grup aktif. Selalu atas permintaan
   /// pengguna — posisi tidak pernah dikirim tanpa dia menekan tombolnya.
   Future<LocationShareResult> startRecording() async {
@@ -506,13 +662,7 @@ class TripState extends ChangeNotifier {
     final cloud = _cloud;
     if (_sharer != null && cloud != null) _sharer!.cloud = cloud;
     _sharer ??= LocationSharer(cloud ?? Cloud())
-      ..onFix = (at, speedKmh) {
-        track.add(at, speedKmh, DateTime.now());
-        // Jejak disimpan berkala, bukan tiap fix: tulis-ulang blob penuh tiap
-        // 10 detik itu pemborosan. Tiap ~1 km cukup — kalau app mati mendadak,
-        // yang hilang paling satu kilometer terakhir.
-        if (track.points.length % 5 == 0) _persist();
-      };
+      ..onFix = (at, speedKmh) => recordFix(at, speedKmh, DateTime.now());
     final r = await _sharer!.start(active.gid);
     if (r == LocationShareResult.ok) {
       _log('Mulai merekam perjalanan',
@@ -543,10 +693,20 @@ class TripState extends ChangeNotifier {
     _log('Jejak perjalanan dihapus', 'Rekaman dimulai dari nol', kGrey);
     _persist();
     notifyListeners();
+    // Ikut dihapus di server. Kalau tidak, anggota lain terus melihat jejak
+    // lama yang di HP ini sudah tidak ada — dan tidak ada lagi yang akan
+    // menimpanya sampai perjalanan berikutnya cukup panjang.
+    final g = activeOrNull;
+    if (g != null && g.onCloud) {
+      _guard('Jejak gagal dihapus di server', () => _cloud!.clearTrack(g.gid!));
+    }
   }
 
   Future<void> stopRecording() async {
     await _sharer?.stop();
+    // Kiriman terakhir supaya anggota lain melihat jejak yang lengkap — tanpa
+    // ini, sampai ~2 km terakhir hilang dari pandangan mereka selamanya.
+    _pushTrack();
     final t = track;
     _log('Berhenti merekam',
         t.isEmpty
@@ -650,6 +810,10 @@ class TripState extends ChangeNotifier {
     }
 
     groups.removeWhere((e) => e.id == id);
+    // Jejaknya ikut dibuang. Kalau tidak, ia tersimpan selamanya di blob JSON
+    // tanpa ada layar yang bisa menampilkannya lagi — sampah murni yang ikut
+    // ditulis ulang tiap penyimpanan.
+    _tracks.remove(id);
     _reseat();
     _persist();
     notifyListeners();
@@ -742,8 +906,27 @@ class TripState extends ChangeNotifier {
       // ulang pakai kode yang masih dia pegang. Keluar sendiri tidak dicekal
       // supaya bisa gabung lagi.
       final dikeluarkan = m.uid != myUid;
+      // Namanya dicatat supaya cekalan ini bisa dibatalkan lagi. Tanpa ini
+      // satu kesalahan mengeluarkan orang jadi permanen: server hanya
+      // menyimpan uid-nya, dan uid tidak bisa dikenali manusia.
+      if (dikeluarkan) g.banned[m.uid!] = m.name;
       _guard('Anggota gagal dihapus di server',
           () => _cloud!.removeMember(g, m, ban: dikeluarkan));
+    }
+  }
+
+  /// Batalkan cekalan supaya dia bisa gabung lagi pakai kode yang sama.
+  void unbanMember(TripGroup g, String uid) {
+    final nama = g.banned.remove(uid) ?? 'Anggota';
+    _log('$nama diizinkan gabung lagi', 'Dia bisa pakai kode gabung yang sama',
+        kOk);
+    _persist();
+    notifyListeners();
+    if (g.onCloud) {
+      // Kalau ini gagal, cekalannya masih berlaku di server sementara daftar
+      // lokalnya sudah bersih — jadi kegagalannya harus terlihat, bukan diam.
+      _guard('Cekalan gagal dibatalkan di server',
+          () => _cloud!.unban(g, uid));
     }
   }
 
@@ -782,8 +965,15 @@ class TripState extends ChangeNotifier {
     notifyListeners();
   }
 
-  void _log(String title, String body, int color) =>
-      logs.insert(0, LogEntry(fmtClock(DateTime.now()), title, body, color));
+  /// Riwayat dibatasi. Setiap catatan ikut ditulis ke blob JSON tiap
+  /// penyimpanan, jadi daftar tanpa batas membuat penyimpanan makin lambat
+  /// seiring app dipakai — dan tidak ada yang membaca kejadian bulan lalu.
+  static const _maxLogs = 200;
+
+  void _log(String title, String body, int color) {
+    logs.insert(0, LogEntry(fmtClock(DateTime.now()), title, body, color));
+    if (logs.length > _maxLogs) logs.removeRange(_maxLogs, logs.length);
+  }
 
   // ── Turunan untuk layar live ───────────────────────────────────────────────
 
@@ -803,7 +993,7 @@ class TripState extends ChangeNotifier {
   /// Progres rombongan 0..1. Nol untuk grup yang belum jalan.
   double get progress => riders.isEmpty ? 0 : leader.p;
   Rider? get sosRider =>
-      sos == null ? null : riders.where((r) => r.id == sos).firstOrNull;
+      sosUid == null ? null : riders.where((r) => r.uid == sosUid).firstOrNull;
 
   int count(RiderStatus s) => riders.where((r) => r.status == s).length;
 
@@ -832,35 +1022,59 @@ class TripState extends ChangeNotifier {
   Duration? get sosFor =>
       sosAt == null ? null : DateTime.now().difference(sosAt!);
 
-  /// Tandai diriku sedang butuh bantuan.
+  /// Tandai diriku sedang butuh bantuan, dan umumkan ke anggota lain.
   ///
-  /// ponytail: baru lokal — belum ditulis ke `sos/{uid}` di server, jadi anggota
-  /// lain belum melihatnya. Node dan Rules-nya sudah siap; tahap 3 di
-  /// RENCANA_BACKEND.md yang menyambungkannya.
+  /// Ditandai lokal lebih dulu supaya spanduknya langsung muncul, lalu ditulis
+  /// ke server. Urutannya penting: orang yang menekan SOS tidak boleh menunggu
+  /// jaringan untuk melihat bahwa tombolnya bekerja.
   void fireSos() {
-    final me = riders.where((r) => r.uid == myUid).firstOrNull;
+    // Jangan pakai `r.uid == myUid` langsung: kalau myUid null, perbandingannya
+    // cocok dengan rider mana pun yang uid-nya juga null, dan SOS-nya menempel
+    // ke orang yang salah.
+    final uid = myUid;
+    if (uid == null) {
+      _log('SOS tidak bisa dikirim',
+          'Grup ini hanya tersimpan di HP ini — server tidak tahu siapa kamu',
+          kWarn);
+      notifyListeners();
+      return;
+    }
+    final me = riders.where((r) => r.uid == uid).firstOrNull;
     if (me == null) {
       _log('SOS tidak bisa dikirim',
           'Tekan MULAI dulu supaya posisimu diketahui', kWarn);
       notifyListeners();
       return;
     }
-    sos = me.id;
+    sosUid = me.uid;
     sosAt = DateTime.now();
     _log('SOS dikirim oleh ${me.name}',
         'Hubungi road captain dan sweeper lewat telepon juga', kBad);
     _relabelLive(DateTime.now());
     _persist();
     notifyListeners();
+    final g = active;
+    if (g.onCloud) {
+      _guard('SOS gagal dikirim ke anggota lain', () => _cloud!.putSos(g.gid!));
+    }
   }
 
   void clearSos() {
-    sos = null;
+    final g = active;
+    final uid = sosUid;
+    sosUid = null;
     sosAt = null;
     _log('SOS ditutup', 'Ditandai sudah ditangani', kOk);
     _relabelLive(DateTime.now());
     _persist();
     notifyListeners();
+    // Rules mengizinkan ini hanya untuk yang bersangkutan atau road captain.
+    // Kalau bukan keduanya, penulisannya ditolak dan tanda SOS kembali muncul
+    // dari server — itu benar: bukan haknya menutup SOS orang lain.
+    if (g.onCloud && uid != null) {
+      _guard('SOS gagal ditutup di server',
+          () => _cloud!.clearSos(g.gid!, uid));
+    }
   }
 }
 

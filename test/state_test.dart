@@ -387,35 +387,44 @@ void main() {
     });
   });
 
-  test('SOS menandai diriku sendiri, bukan rider sembarang', () async {
-    // Dulu fireSos memilih riders[27] — indeks yang hanya masuk akal untuk
-    // grup demo berisi 50 rider palsu.
+  test('SOS menolak menandai siapa pun kalau server tidak tahu siapa aku',
+      () async {
+    // Tanpa sambungan server, myUid null. Dulu SOS memakai indeks rider, jadi
+    // tetap "berhasil" dan menandai rider pertama yang uid-nya juga null —
+    // orang yang salah. Sekarang identitasnya wajib jelas.
     final s = await freshState();
     addTearDown(s.dispose);
     pakai(s, ujiGroup());
+    expect(s.myUid, isNull, reason: 'tes ini berjalan tanpa Firebase');
 
-    // Seolah posisiku sudah masuk dari server.
     s.riders.add(Rider(
       id: 0,
-      uid: s.myUid,
-      name: 'Aku',
-      plat: 'N 1 AB',
+      uid: null,
+      name: 'Orang Lain',
+      plat: 'N 9 ZZ',
       role: 'RIDER',
       p: .3,
       v: 40,
       batt: 80,
     ));
 
-    expect(s.sosRider, isNull);
     s.fireSos();
-    expect(s.sosRider, isNotNull);
-    expect(s.sosRider!.name, 'Aku');
-    expect(s.sosAt, isNotNull);
-    expect(s.sosFor, isNotNull);
-    expect(s.logs.first.title, contains('SOS dikirim'));
+    expect(s.sosRider, isNull,
+        reason: 'jangan menempelkan SOS ke rider tanpa identitas');
+    expect(s.sosAt, isNull);
+    expect(s.logs.first.title, contains('SOS tidak bisa dikirim'));
+    expect(s.logs.first.body, contains('hanya tersimpan di HP ini'));
+  });
+
+  test('clearSos membersihkan tanda dan mencatatnya', () async {
+    final s = await freshState();
+    addTearDown(s.dispose);
+    pakai(s, ujiGroup());
+    s.sosUid = 'uid-rc';
+    s.sosAt = DateTime(2026, 8, 5, 9, 0);
 
     s.clearSos();
-    expect(s.sosRider, isNull);
+    expect(s.sosUid, isNull);
     expect(s.sosAt, isNull);
     expect(s.logs.first.title, contains('SOS ditutup'));
   });

@@ -166,7 +166,9 @@ String _routeError(http.Response res) {
 /// ponytail: fallback kasar — jarak haversine antar stop, kecepatan 40 km/j.
 /// Cukup untuk menyusun rute saat offline; angka pastinya datang dari Valhalla.
 SnappedRoute _straight(List<LatLng> stops) {
-  const d = Distance();
+  // roundResult:false — lihat catatan di data.dart; default-nya membulatkan
+  // ke km bulat dan membuat jarak pendek hilang jadi 0.
+  const d = Distance(roundResult: false);
   var km = 0.0;
   for (var i = 0; i < stops.length - 1; i++) {
     km += d.as(LengthUnit.Kilometer, stops[i], stops[i + 1]);

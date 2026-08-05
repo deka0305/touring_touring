@@ -21,6 +21,9 @@ sendiri.
   sinyal — selama app dibuka.
 - **Rekam perjalanan** lalu bagikan rekapnya sebagai kartu gambar.
 - **Merekam terus walau layar mati** — HP boleh masuk kantong.
+- **SOS sampai ke anggota lain** selama app mereka terbuka.
+- **Jejak yang sudah dilalui tiap anggota terlihat di peta semua anggota** —
+  bukan cuma posisinya sekarang, tapi jalur yang benar-benar dia tempuh.
 
 **Belum bisa**
 
@@ -29,8 +32,9 @@ terbaru) atau HP mematikan aplikasinya untuk hemat baterai. Selama merekam ada
 notifikasi *"Merekam perjalanan"* — kalau notifikasi itu hilang padahal belum
 ditekan STOP, jejaknya terputus. Bawa power bank untuk touring panjang.
 
-Notifikasi SOS ke HP yang app-nya tertutup juga belum bisa, dan tidak akan bisa
-di paket Firebase gratis. **HT atau telepon tetap jalur darurat utama.**
+SOS hanya terlihat oleh anggota yang app-nya **sedang terbuka**. Notifikasi ke
+HP yang app-nya tertutup tidak bisa di paket Firebase gratis. **HT atau telepon
+tetap jalur darurat utama.**
 
 Artinya: pakai app ini untuk **merencanakan dan membagikan** touring. Saat hari-H,
 komunikasi tetap lewat HT atau WhatsApp.
@@ -179,9 +183,14 @@ yang sama dan masuk lagi.
 
 Di HP orang itu, grupnya hilang sendiri dan riwayat mencatat **"Akses ke … dicabut"**.
 
-Kalau kamu ingin memasukkannya kembali, itu belum ada tombolnya — daftar cekal
-hanya bisa dibersihkan lewat konsol Firebase (hapus `banned/<uid>`). Bilang saja
-kalau perlu tombol "izinkan lagi".
+**Kalau salah dikeluarkan:** di detail grup muncul bagian **DICEKAL** berisi
+nama-nama yang dicekal, dengan tombol **Izinkan lagi**. Sesudah itu dia bisa
+masuk memakai kode gabung yang sama.
+
+Daftar itu tersimpan **di HP road captain**, karena server hanya menyimpan uid
+tanpa nama. Kalau kamu pasang ulang app di HP baru, nama-namanya hilang dan
+cekalan lama hanya bisa dibersihkan lewat konsol Firebase (hapus
+`groups/<gid>/banned/<uid>`).
 
 Bedanya dengan **keluar sendiri** (menu ⋮ → Keluar dari grup): itu tidak dicekal,
 jadi orangnya bisa gabung lagi kapan pun pakai kode yang sama.
@@ -288,6 +297,7 @@ Dua tombol di kanan atas, warnanya sama dengan garisnya:
 |---|---|---|
 | 🛣️ | Rute rencana dari maps | **oranye** |
 | 〰️ | Jejak GPS yang kamu lalui | **hijau** |
+| 〰️ | Jejak anggota lain | hijau lebih pudar & tipis |
 
 Keduanya bisa hidup bersamaan — dan itu justru pemakaian yang paling berguna:
 kelihatan seberapa jauh jalur nyatamu menyimpang dari rute. Saat jejak
@@ -371,10 +381,14 @@ Apa yang tampil bergantung pada apa yang sudah ada — bukan pada jenis grup:
 
 | Tab | Belum ada posisi | Sudah ada posisi dari server |
 |---|---|---|
-| **Peta** | Rute + titik bernomor + ringkasan rencana | Marker anggota, pin RC/sweeper, rentang rombongan |
+| **Peta** | Rute + titik bernomor + ringkasan rencana | Marker anggota, jejak yang sudah dilalui rombongan, pin RC/sweeper, rentang rombongan |
 | **Tim** | Daftar anggota dengan peran dan nopol | TERLACAK (status, kecepatan) + BELUM TERLACAK |
-| **SOS** | Keterangan kenapa belum aktif | Tombol darurat aktif + riwayat |
+| **SOS** | Keterangan kenapa belum aktif | Tombol darurat aktif + riwayat; SOS anggota lain muncul di sini |
 | **Rekap** | Rencana rute | Keadaan rombongan; kalau kamu sudah merekam, rekap jejak GPS-mu |
+
+Rekap **tidak menuntut rute**: begitu ada jejak GPS, jarak, durasi, kecepatan
+rata-rata dan maksimum langsung tampil, dan kartu bagikan bisa dibuat. Rute cuma
+menambah daftar checkpoint.
 
 ---
 
@@ -382,9 +396,25 @@ Apa yang tampil bergantung pada apa yang sudah ada — bukan pada jenis grup:
 
 **Tema.** Ikon matahari/bulan di kanan atas. Pilihanmu tersimpan.
 
+**Arti "durasi".** Durasi menghitung **waktu yang benar-benar terekam**, bukan
+selisih jam mulai dan jam terakhir. Jeda lebih dari 5 menit tanpa satu pun titik
+GPS — app ditutup, HP mati, atau berhenti panjang — tidak dihitung. Jadi jejak
+0,2 km yang dilanjutkan besok paginya tercatat beberapa menit, bukan 13 jam, dan
+kecepatan rata-ratanya masuk akal. Konsekuensinya: **berhenti makan 30 menit
+tidak masuk durasi.**
+
 **Data kamu.** Grup, rute, dan anggota tersimpan di server, jadi tidak hilang
-saat ganti HP. **Jejak GPS-mu disimpan di HP ini saja** dan tidak dikirim ke mana
-pun — menghapus app berarti menghapus jejaknya.
+saat ganti HP.
+
+**Jejak GPS-mu dibagikan ke anggota grup ini** — itu gunanya, supaya rombongan
+tahu jalur yang sudah dilalui. Yang dikirim hanya garisnya (satu titik per
+200 meter) beserta jaraknya; jam lintas dan kecepatan maksimum tetap di HP ini.
+Pengiriman baru dimulai **setelah kamu menekan MULAI**, tiap ~2 km, dan hanya ke
+anggota grup itu — tidak ke siapa pun di luarnya. Server tidak mengizinkan
+siapa pun menulis jejak atas nama orang lain.
+
+Mau menghapusnya dari pandangan anggota lain: **Rekap → Bagikan → Hapus jejak**.
+Itu menghapusnya di HP ini sekaligus di server.
 
 **Tidak ada data contoh.** App ini tidak punya grup demo. Pemasangan baru mulai
 kosong dengan dua pilihan: buat grup, atau gabung pakai kode. Setiap angka yang

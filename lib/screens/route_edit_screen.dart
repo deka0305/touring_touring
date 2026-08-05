@@ -37,7 +37,23 @@ class _RouteEditScreenState extends State<RouteEditScreen> {
   @override
   void initState() {
     super.initState();
-    if (_stops.length >= 2) _recompute();
+    // Rute yang sudah tersimpan dipakai apa adanya sebagai draf awal, BUKAN
+    // dihitung ulang. Menghitung ulang saat layar dibuka membuang satu
+    // permintaan ke server rute tiap kali, dan saat offline menampilkan pesan
+    // error di atas rute yang sebenarnya sehat. Perhitungan ulang hanya terjadi
+    // kalau daftar titiknya benar-benar diubah.
+    final g = widget.group;
+    if (g.hasRoute) {
+      _snapped = SnappedRoute(
+        points: g.geometry,
+        stopIndices: g.stopIndices,
+        km: g.km,
+        minutes: g.minutes,
+        straightLine: false,
+      );
+    } else if (_stops.length >= 2) {
+      _recompute();
+    }
   }
 
   @override
@@ -302,6 +318,12 @@ class _RouteEditScreenState extends State<RouteEditScreen> {
                 flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
               ),
               onLongPress: (_, at) => _addStopAt(at),
+              // Rute yang dipakai sebagai draf awal tidak lewat _recompute,
+              // jadi pembingkaiannya dikerjakan di sini — kalau tidak, layar
+              // terbuka dengan peta zoom 11 di titik pertama saja.
+              onMapReady: () {
+                if (draft.length >= 2) _fitDraft(draft);
+              },
             ),
             children: [
               TileLayer(

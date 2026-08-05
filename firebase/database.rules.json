@@ -85,6 +85,23 @@
           }
         },
 
+        // Jejak yang sudah dilalui tiap anggota. Bentuk izinnya disengaja sama
+        // dengan `live`: hanya pemiliknya yang boleh menulis, jadi tidak ada
+        // cara memalsukan jejak orang lain. Membacanya ikut `.read` grup, jadi
+        // hanya anggota yang bisa.
+        //
+        // Batas 200.000 karakter sama dengan `route/geom`: satu titik per 200 m
+        // membuat rute 1.000 km pun hanya ~50 KB.
+        "track": {
+          "$uid": {
+            ".write": "auth != null && $uid === auth.uid && root.child('groups').child($gid).child('members').child(auth.uid).exists()",
+            "geom": { ".validate": "newData.isString() && newData.val().length <= 200000" },
+            "km": { ".validate": "newData.isNumber() && newData.val() >= 0" },
+            "t": { ".validate": "newData.isNumber()" },
+            "$other": { ".validate": false }
+          }
+        },
+
         "sos": {
           "$uid": {
             ".write": "auth != null && ($uid === auth.uid || root.child('groups').child($gid).child('meta/rcUid').val() === auth.uid)"
@@ -94,12 +111,6 @@
         "log": {
           "$id": {
             ".write": "auth != null && root.child('groups').child($gid).child('members').child(auth.uid).exists()"
-          }
-        },
-
-        "track": {
-          "$uid": {
-            ".write": "auth != null && $uid === auth.uid && root.child('groups').child($gid).child('members').child(auth.uid).exists()"
           }
         },
 

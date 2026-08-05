@@ -392,7 +392,12 @@ class _RiderRow extends StatelessWidget {
                   ],
                 ),
                 Text(
-                  '${r.plat} · ${r.v.round()} km/j · KM ${r.km.round()}',
+                  // KM dihitung sebagai posisi di sepanjang rute, jadi tanpa
+                  // rute nilainya 0 untuk semua orang — lebih baik tidak
+                  // ditulis daripada menampilkan "KM 0" berjajar.
+                  routeReady
+                      ? '${r.plat} · ${r.v.round()} km/j · KM ${r.km.round()}'
+                      : '${r.plat} · ${r.v.round()} km/j',
                   style: mono(500, 11, color: p.tx2, height: 1.4),
                 ),
               ],

@@ -46,7 +46,7 @@ class LocationSharer {
 
   static const _minInterval = Duration(seconds: 10);
   static const _minMeters = 25;
-  static const _dist = Distance();
+  static const _dist = Distance(roundResult: false);
 
   /// Setelan pembacaan GPS. [distanceFilter] adalah saringan pertama dan
   /// dikerjakan OS — hemat baterai karena callback-nya tidak dipanggil untuk

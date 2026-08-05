@@ -16,24 +16,30 @@ class TripScreen extends StatelessWidget {
     final g = s.active;
     final live = s.live;
 
-    if (!g.hasRoute) {
+    // Prioritas: jejak GPS-ku > posisi rombongan dari server > rencana. Rekap
+    // tanpa jejak nyata bukan rekap, cuma keadaan sekarang atau perkiraan.
+    final t = s.track;
+    final punyaJejak = !t.isEmpty;
+
+    // Syaratnya jejak ATAU rute — bukan rute saja. Rekap ini isinya jarak,
+    // durasi, dan kecepatan dari jejak GPS; mengunci semuanya di balik "harus
+    // ada rute" membuat orang yang sudah merekam perjalanan tidak bisa melihat
+    // rekapnya sendiri, dan kartu bagikan pun tak terjangkau karena hanya bisa
+    // dibuka dari sini.
+    if (!punyaJejak && !g.hasRoute) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(32),
           child: Text(
-            'Rekap muncul setelah grup "${g.name}" punya rute.\n'
-            'Susun rutenya dari tab Peta atau tab Grup.',
+            'Belum ada yang bisa direkap untuk "${g.name}".\n'
+            'Tekan MULAI di tab Peta untuk merekam perjalanan, atau susun '
+            'rutenya lebih dulu.',
             textAlign: TextAlign.center,
             style: arch(400, 13, color: p.tx2, height: 1.6),
           ),
         ),
       );
     }
-
-    // Prioritas: jejak GPS-ku > posisi rombongan dari server > rencana. Rekap
-    // tanpa jejak nyata bukan rekap, cuma keadaan sekarang atau perkiraan.
-    final t = s.track;
-    final punyaJejak = !t.isEmpty;
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(18, 0, 18, 12),
@@ -126,10 +132,15 @@ class TripScreen extends StatelessWidget {
             style: arch(400, 12, color: p.tx2, height: 1.5),
           ),
         ],
-        const SizedBox(height: 22),
-        const SectionLabel('CHECKPOINT'),
-        for (var i = 0; i < g.stops.length; i++)
-          _CheckpointRow(index: i, group: g, live: live),
+        // Judul disembunyikan kalau tidak ada titiknya. Grup yang direkam tanpa
+        // rute sampai di sini, dan judul kosong terbaca seperti data yang gagal
+        // dimuat.
+        if (g.stops.isNotEmpty) ...[
+          const SizedBox(height: 22),
+          const SectionLabel('CHECKPOINT'),
+          for (var i = 0; i < g.stops.length; i++)
+            _CheckpointRow(index: i, group: g, live: live),
+        ],
         const SizedBox(height: 22),
         const SectionLabel('BAGIKAN'),
         const SizedBox(height: 8),

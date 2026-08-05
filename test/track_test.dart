@@ -33,14 +33,29 @@ void main() {
     });
 
     test('durasi, rata-rata, dan kecepatan maksimum', () {
+      // 5 km dalam 59 menit, fix tiap menit — bentuk yang wajar dari GPS nyata.
+      final t = Track();
+      for (var i = 0; i < 60; i++) {
+        t.add(utara(awal, 5000 * i / 59), i == 30 ? 72 : 30,
+            t0.add(Duration(minutes: i)));
+      }
+
+      expect(t.duration, const Duration(minutes: 59));
+      expect(t.km, closeTo(5, 0.1));
+      expect(t.avgKmh, closeTo(5.08, 0.2));
+      expect(t.topKmh, 72, reason: 'maksimum dari semua fix, bukan yang akhir');
+    });
+
+    test('dua fix berjarak satu jam: durasinya nol, bukan satu jam', () {
+      // Tidak mungkin bergerak 5 km tanpa satu pun fix selama sejam kecuali
+      // app-nya mati di tengahnya. Menghitungnya sebagai perjalanan membuat
+      // rata-rata jadi ngawur — inilah sumber "13j 09m" untuk jejak 0,2 km.
       final t = Track();
       t.add(awal, 30, t0);
-      t.add(utara(awal, 5000), 72, t0.add(const Duration(hours: 1)));
+      t.add(utara(awal, 5000), 30, t0.add(const Duration(hours: 1)));
 
-      expect(t.duration, const Duration(hours: 1));
-      expect(t.km, closeTo(5, 0.1));
-      expect(t.avgKmh, closeTo(5, 0.2));
-      expect(t.topKmh, 72, reason: 'maksimum dari semua fix, bukan yang akhir');
+      expect(t.duration, Duration.zero);
+      expect(t.km, closeTo(5, 0.1), reason: 'jaraknya tetap nyata');
     });
 
     test('lompatan liar GPS tidak dihitung sebagai jarak', () {

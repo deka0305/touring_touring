@@ -129,6 +129,28 @@ class GroupScreen extends StatelessWidget {
                     style: arch(400, 12, color: p.tx2, height: 1.5),
                   ),
                 ),
+              // Cekalan wajib bisa dibatalkan. Mengeluarkan anggota otomatis
+              // mencekalnya — kalau tidak, dia tinggal menempel kode lagi —
+              // dan tanpa bagian ini satu salah tekan jadi permanen.
+              if (trip.amRc(g) && g.banned.isNotEmpty) ...[
+                const SizedBox(height: 20),
+                SectionLabel('DICEKAL · ${g.banned.length}'),
+                const SizedBox(height: 6),
+                Text(
+                  'Mereka tidak bisa gabung walau punya kode. Izinkan lagi '
+                  'kalau salah dikeluarkan.',
+                  style: arch(400, 12, color: p.tx2, height: 1.5),
+                ),
+                const SizedBox(height: 10),
+                for (final e in g.banned.entries.toList())
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: _BannedRow(
+                      name: e.value,
+                      onAllow: () => trip.unbanMember(g, e.key),
+                    ),
+                  ),
+              ],
               const SizedBox(height: 20),
               const SectionLabel('BAGIKAN'),
               const SizedBox(height: 6),
@@ -429,6 +451,42 @@ class GroupScreen extends StatelessWidget {
 
 void _toast(BuildContext context, String msg) => ScaffoldMessenger.of(context)
     .showSnackBar(SnackBar(content: Text(msg), duration: const Duration(seconds: 2)));
+
+/// Satu orang yang dicekal, dengan jalan keluarnya.
+class _BannedRow extends StatelessWidget {
+  const _BannedRow({required this.name, required this.onAllow});
+  final String name;
+  final VoidCallback onAllow;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = Pal.of(context);
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+      decoration: BoxDecoration(
+        color: p.surf,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: p.line),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.block, size: 18, color: p.tx2),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: arch(700, 13, color: p.tx)),
+          ),
+          TextButton(
+            onPressed: onAllow,
+            child: Text('Izinkan lagi', style: arch(700, 12, color: accent)),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class _MemberRow extends StatelessWidget {
   const _MemberRow({

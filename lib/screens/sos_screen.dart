@@ -29,10 +29,15 @@ class SosScreen extends StatelessWidget {
                     style: arch(800, 16, color: p.tx, height: 1.3)),
                 const SizedBox(height: 6),
                 Text(
-                  'Tombol darurat butuh lokasi anggota, dan itu perlu server '
-                  'pelacakan. Sementara ini, simpan nomor road captain '
-                  '${trip.active.roadCaptain?.name ?? "(belum ditentukan)"} '
-                  'dan sweeper di kontak HP.',
+                  trip.active.onCloud
+                      // Servernya ada; yang belum ada adalah posisi.
+                      ? 'Tombol darurat butuh lokasi. Tekan MULAI di tab Peta '
+                          'dulu — SOS-mu langsung terlihat anggota lain setelah '
+                          'itu.'
+                      : 'Grup ini hanya ada di HP ini, jadi SOS tidak bisa '
+                          'sampai ke siapa pun. Simpan nomor road captain '
+                          '${trip.active.roadCaptain?.name ?? "(belum ditentukan)"} '
+                          'dan sweeper di kontak HP.',
                   style: arch(400, 13, color: p.tx2, height: 1.5),
                 ),
               ],

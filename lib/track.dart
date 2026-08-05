@@ -4,7 +4,10 @@ import 'package:latlong2/latlong.dart' hide Path;
 
 import 'polyline.dart';
 
-const _dist = Distance();
+// roundResult:false WAJIB. Default Distance() membulatkan hasilnya ke satuan
+// bulat, jadi as(Kilometer) pada segmen 40 m mengembalikan 0 — dan rute hasil
+// snap ke jalan punya titik tiap ~40 m, sehingga total jaraknya jadi 0 km.
+const _dist = Distance(roundResult: false);
 
 /// Jejak perjalananku sendiri: yang benar-benar dilalui, bukan rute rencana.
 ///
@@ -35,6 +38,18 @@ class Track {
   /// Kapan titik terakhir direkam.
   DateTime? updatedAt;
 
+  /// Jeda antar-fix yang lebih lama dari ini dianggap **bukan perjalanan**:
+  /// app ditutup, HP dimatikan, atau berhenti panjang. Denyut GPS datang jauh
+  /// lebih rapat dari ini saat benar-benar jalan.
+  static const _maxGap = Duration(minutes: 5);
+
+  /// Lama perjalanan yang benar-benar terekam, dalam detik.
+  double _secsMoving = 0;
+
+  /// Waktu fix terakhir. Dipakai untuk mengukur jeda, terpisah dari
+  /// [updatedAt] yang ikut dipersistensi apa adanya.
+  DateTime? _lastFixAt;
+
   /// Jarak tempuh nyata (km), dijumlahkan dari semua fix — termasuk yang
   /// tidak disimpan sebagai titik, jadi lebih teliti dari menjumlahkan
   /// [points].
@@ -42,10 +57,14 @@ class Track {
 
   bool get isEmpty => points.length < 2;
 
-  /// Durasi dari titik pertama sampai terakhir.
-  Duration get duration => startedAt == null || updatedAt == null
-      ? Duration.zero
-      : updatedAt!.difference(startedAt!);
+  /// Lama perjalanan: jumlah jeda antar-fix, tanpa jeda yang lebih panjang
+  /// dari [_maxGap].
+  ///
+  /// Sengaja BUKAN `updatedAt - startedAt`. Jejak bertahan setelah app ditutup,
+  /// jadi selisih itu ikut menghitung waktu app mati — perjalanan 0,2 km yang
+  /// dilanjutkan besok paginya tercatat 13 jam, dan kecepatan rata-ratanya
+  /// jadi 0 km/j.
+  Duration get duration => Duration(seconds: _secsMoving.round());
 
   /// Kecepatan rata-rata sepanjang perjalanan (km/j). Nol kalau belum jalan.
   double get avgKmh {
@@ -68,6 +87,15 @@ class Track {
     startedAt ??= now;
     updatedAt = now;
     if (speedKmh.isFinite) topKmh = math.max(topKmh, speedKmh);
+
+    final prevAt = _lastFixAt;
+    _lastFixAt = now;
+    if (prevAt != null) {
+      final gap = now.difference(prevAt);
+      if (gap > Duration.zero && gap <= _maxGap) {
+        _secsMoving += gap.inMilliseconds / 1000;
+      }
+    }
 
     final prev = _lastFix;
     if (prev == null) {
@@ -121,6 +149,8 @@ class Track {
     startedAt = null;
     updatedAt = null;
     _lastFix = null;
+    _lastFixAt = null;
+    _secsMoving = 0;
   }
 
   Map<String, dynamic> toJson() => {
@@ -128,6 +158,7 @@ class Track {
         'secs': secs,
         'km': _km,
         'top': topKmh,
+        'moving': _secsMoving,
         if (startedAt != null) 'start': startedAt!.toIso8601String(),
         if (updatedAt != null) 'end': updatedAt!.toIso8601String(),
       };
@@ -141,9 +172,15 @@ class Track {
     t.secs.addAll([for (final v in (j['secs'] as List? ?? [])) v as int]);
     t.topKmh = (j['top'] as num?)?.toDouble() ?? 0;
     t.updatedAt = j['end'] == null ? null : DateTime.parse(j['end'] as String);
+    // Jejak lama (sebelum durasi dihitung per-jeda) tidak punya 'moving'.
+    // Jangan mundur ke end-start: justru angka itulah yang salah. Anggap nol
+    // dan biarkan durasinya tumbuh dari perekaman berikutnya.
+    t._secsMoving = (j['moving'] as num?)?.toDouble() ?? 0;
     // Lanjutkan menghitung dari ujung jejak, bukan dari nol — kalau tidak,
     // fix pertama setelah app dibuka lagi akan diabaikan jaraknya.
     if (t.points.isNotEmpty) t._lastFix = t.points.last;
+    // _lastFixAt sengaja dibiarkan null: jeda dari fix terakhir sebelum app
+    // ditutup sampai fix pertama sesudahnya bukan waktu perjalanan.
     return t;
   }
 }

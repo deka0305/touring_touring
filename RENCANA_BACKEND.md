@@ -122,16 +122,27 @@ SharedPreferences — server jadi sumber kebenaran, penyimpanan lokal jadi cache
     t      : 1785000000000
     online : true                 // di-set false oleh onDisconnect()
 
-  sos/{uid}
-    lat, lng, t
-    note       : "bocor, butuh tambal"
-    resolvedMs : null
+  sos/{uid}                       // TERPASANG: nilainya cukup waktu (ms)
+    1785000000000                 // dihapus saat SOS ditutup. Posisinya sudah
+                                  // ada di live/{uid}, jadi tidak diduplikasi;
+                                  // catatan bebas belum ada — belum ada yang
+                                  // memintanya.
 
   log/{pushId}
     t, title, body, color
 
-  track/{uid}/{i}                 // opsional, untuk rekap; lihat §4
-    lat, lng, t
+  track/{uid}                     // TERPASANG: jejak yang sudah dilalui
+    geom : "encoded polyline"     // satu titik per 200 m, maks 200.000 karakter
+    km   : 42.7
+    t    : 1785000000000          // kapan terakhir diperbarui
+
+                                  // Ditulis ulang seluruhnya tiap ~2 km, bukan
+                                  // ditambah sepotong: polyline itu satu string,
+                                  // dan satu potongan hilang membuat sisanya
+                                  // tak terbaca. Jadi frekuensinya yang
+                                  // menentukan biaya kuota, bukan panjang
+                                  // perjalanannya. Rute 100 km = ~50 kiriman,
+                                  // rata-rata 2,5 KB ≈ 130 KB per anggota.
 ```
 
 Dua keputusan yang menentukan:
@@ -187,6 +198,23 @@ Kalau nanti kurang, penghematan berikutnya: anggota biasa cukup mendengarkan
 posisi RC dan sweeper saja (2 node, bukan 49), sedangkan RC yang mendengarkan
 semua. Itu memotong unduhan hampir 95%, dengan konsekuensi anggota biasa tidak
 melihat 50 marker.
+
+### Jangan pernah mengawasi `groups/{gid}` utuh
+
+Hitungan di atas **hanya berlaku** kalau tiap node diawasi terpisah. `live/`,
+`track/`, dan `sos/` adalah anak dari `groups/{gid}`, jadi satu pengawas di node
+grup akan mengirim ulang **seluruh** isinya — termasuk geometri rute (~25 KB
+untuk rute 100 km) dan semua jejak anggota — setiap kali ada satu kiriman posisi.
+
+Untuk rombongan 5 orang: 30 kiriman/menit × ~50 KB = **1,5 MB/menit ≈ 90 MB/jam
+per HP.** Satu ride 6 jam berlima menghabiskan ~2,7 GB, seperempat kuota bulanan.
+Lebih buruk lagi, dulu tiap kiriman itu juga memicu `_activate()` yang membangun
+ulang pengawas `live`/`track`/`sos` sehingga datanya diunduh lagi — umpan balik
+yang mengalikan biayanya.
+
+Karena itu `Cloud.watchGroup` mengawasi `meta`, `stops`, `route`, dan `members`
+satu per satu lalu menyusunnya kembali. Terlihat lebih berbelit daripada satu
+`onValue`, dan itu memang harganya.
 
 ---
 
