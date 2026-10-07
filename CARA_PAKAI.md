@@ -1,4 +1,4 @@
-# Touring Tracker — Cara Pakai
+# Konvoi — Cara Pakai
 
 App touring motor: rencanakan rute, bagikan grup, rekam perjalanan.
 Tidak ada data contoh — semua yang tampil berasal dari grup dan jejak GPS-mu
@@ -261,7 +261,7 @@ Yang perlu diketahui:
 
 - Lokasimu **tidak pernah dikirim** sampai kamu menekan MULAI.
 - Izin lokasi diminta sekali. Kalau pernah ditolak permanen, app mengarahkan ke
-  Pengaturan → Aplikasi → Touring Tracker → Izin → Lokasi.
+  Pengaturan → Aplikasi → Konvoi → Izin → Lokasi.
 - Posisi dikirim tiap **10 detik**, dilewati kalau bergeser kurang dari
   **25 meter**. Rider yang berhenti hampir tidak memakai kuota.
 - Jejak disimpan satu titik per **200 meter** — rute 100 km jadi ~500 titik.
@@ -282,9 +282,9 @@ Sesudah menekan MULAI, tombolnya harus jadi merah. Kalau tidak:
 |---|---|
 | **MENUNGGU SINYAL GPS…** | Normal. GPS sedang mencari sinyal — di dalam ruangan bisa lama. Keluar ke tempat terbuka |
 | Pesan *"Izin lokasi ditolak"* | Tekan MULAI lagi dan pilih **Izinkan** |
-| Pesan *"Izin lokasi diblokir"* | Pengaturan → Aplikasi → Touring Tracker → Izin → Lokasi → Izinkan |
+| Pesan *"Izin lokasi diblokir"* | Pengaturan → Aplikasi → Konvoi → Izin → Lokasi → Izinkan |
 | Pesan *"GPS mati"* | Nyalakan Lokasi di panel setelan cepat HP |
-| Jejak terputus sesudah HP dikantongi | Hemat baterai membunuh app-nya. Pengaturan → Aplikasi → Touring Tracker → Baterai → **Tanpa batasan** (Xiaomi/Oppo/Vivo/Samsung paling agresif) |
+| Jejak terputus sesudah HP dikantongi | Hemat baterai membunuh app-nya. Pengaturan → Aplikasi → Konvoi → Baterai → **Tanpa batasan** (Xiaomi/Oppo/Vivo/Samsung paling agresif) |
 
 Semua kegagalan juga tercatat di **tab SOS → Riwayat kejadian**, jadi alasannya
 tetap bisa dibaca setelah pesan sekilasnya hilang.

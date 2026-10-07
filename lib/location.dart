@@ -204,3 +204,45 @@ class LocationSharer {
   /// perjalanan sendiri — jejak itu lokal, tidak menambah kuota server.
   void Function(LatLng at, double speedKmh)? onFix;
 }
+
+/// Posisiku sekarang, sekali ambil — untuk menyorot peta ke lokasiku begitu
+/// dibuka, walau perekaman belum jalan. Null kalau GPS mati, izin ditolak,
+/// atau tidak ada fix; tidak pernah melempar, supaya peta tetap terbuka.
+///
+/// Posisi terakhir yang diingat HP dipakai dulu (instan), baru fix segar
+/// diminta. [onFresh] dipanggil kalau fix segar datang belakangan.
+Future<LatLng?> currentPosition({void Function(LatLng)? onFresh}) async {
+  try {
+    if (!await Geolocator.isLocationServiceEnabled()) return null;
+    var perm = await Geolocator.checkPermission();
+    if (perm == LocationPermission.denied) {
+      perm = await Geolocator.requestPermission();
+    }
+    if (perm == LocationPermission.denied ||
+        perm == LocationPermission.deniedForever) {
+      return null;
+    }
+    final last = await Geolocator.getLastKnownPosition();
+    Future<LatLng?> segar() async {
+      final p = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 10),
+        ),
+      );
+      return LatLng(p.latitude, p.longitude);
+    }
+
+    if (last == null) return await segar();
+    segar().then((p) {
+      if (p != null) onFresh?.call(p);
+    }).catchError((Object e) {
+      debugPrint('location: fix segar gagal ($e)');
+      return null;
+    });
+    return LatLng(last.latitude, last.longitude);
+  } catch (e) {
+    debugPrint('location: posisi sekarang gagal ($e)');
+    return null;
+  }
+}

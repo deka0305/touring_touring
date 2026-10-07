@@ -4,6 +4,7 @@ import 'package:latlong2/latlong.dart' hide Path;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:touring_touring/data.dart';
 import 'package:touring_touring/main.dart';
+import 'package:touring_touring/screens/group_screen.dart';
 
 import 'fixture.dart';
 
@@ -14,6 +15,8 @@ void main() {
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
     await trip.init();
+    // Layar nama di awal dilewati; alurnya diuji sendiri di onboard_test.
+    trip.myName = 'Penguji';
     // Shell menampilkan onboarding kalau belum ada grup; alur di sini menguji
     // navigasi di dalam shell, jadi satu grup disiapkan lebih dulu.
     pakai(trip, ujiGroup(id: 'AWL-0001', name: 'Grup Awal'));
@@ -80,7 +83,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(trip.groups.length, 2);
-    expect(find.text('GROUP ID'), findsOne, reason: 'mendarat di detail grup');
+    expect(find.widgetWithText(AppBar, 'Ke Bromo'), findsOne,
+        reason: 'mendarat di detail grup');
 
     // Kembali ke daftar: di sini tree detail grup dibongkar.
     await tester.pageBack();
@@ -95,8 +99,6 @@ void main() {
     phone(tester);
     final g = await routedGroup('Kelola Anggota', ikut: ['Teman Satu']);
     await openGroupsTab(tester);
-    await tester.tap(find.text(g.name).last);
-    await tester.pumpAndSettle();
 
     // Fitur tambah manual dibuang: orang yang didaftarkan dari HP lain tidak
     // akan pernah punya posisi GPS.
@@ -104,14 +106,16 @@ void main() {
     // Test jalan tanpa Firebase, jadi grupnya lokal dan keterangannya versi itu.
     expect(find.textContaining('hanya ada di HP ini'), findsOne);
 
-    // Geser untuk hapus tetap ada, supaya RC bisa mengeluarkan anggota.
-    await tester.drag(find.text('Teman Satu'), const Offset(-500, 0));
+    // Tombol silang untuk mengeluarkan anggota, dengan konfirmasi. Road
+    // captain sendiri tidak punya tombol itu.
+    expect(find.byTooltip('Keluarkan'), findsOne);
+    await tester.ensureVisible(find.byTooltip('Keluarkan'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Keluarkan'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Keluarkan').last);
     await tester.pumpAndSettle();
     expect(g.members.length, 1);
-    expect(tester.takeException(), isNull);
-
-    await tester.pageBack();
-    await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
     trip.pause();
   });
@@ -121,9 +125,9 @@ void main() {
     phone(tester);
     final g = await routedGroup('Isi Anggota', ikut: ['Rizky']);
     await openGroupsTab(tester);
-    await tester.tap(find.text(g.name).last);
-    await tester.pumpAndSettle();
 
+    await tester.ensureVisible(find.text('Rizky'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Rizky'));
     await tester.pumpAndSettle();
     await tester.enterText(
@@ -162,10 +166,7 @@ void main() {
     final g = await routedGroup('Mau Dihapus');
     await openGroupsTab(tester);
 
-    await tester.tap(find.text(g.name).last);
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.ensureVisible(find.text('Hapus grup'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Hapus grup'));
     await tester.pumpAndSettle();
@@ -174,25 +175,29 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(trip.groups.any((e) => e.id == g.id), isFalse);
-    expect(find.text('Grup touring'), findsOne, reason: 'balik ke daftar grup');
+    expect(find.text('Grup Awal'), findsWidgets, reason: 'grup tersisa tampil');
+    expect(trip.activeId, 'AWL-0001', reason: 'grup tersisa jadi aktif');
     trip.pause();
   });
 
-  testWidgets('hapus anggota: tombolnya terlihat di dialog, bukan cuma geser',
+  testWidgets('keluarkan anggota: batal tidak menghapus, lanjut menghapus',
       (tester) async {
     phone(tester);
     final g = await routedGroup('Hapus Anggota', ikut: ['Mau Dihapus']);
     await openGroupsTab(tester);
-    await tester.tap(find.text(g.name).last);
-    await tester.pumpAndSettle();
     expect(g.members.length, 2);
 
-    // Ketuk barisnya → dialog ubah, dan di sini Hapus harus ada.
-    await tester.tap(find.text('Mau Dihapus'));
+    await tester.ensureVisible(find.byTooltip('Keluarkan'));
     await tester.pumpAndSettle();
-    expect(find.text('Hapus'), findsOne, reason: 'harus bisa ditemukan');
+    await tester.tap(find.byTooltip('Keluarkan'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Batal'));
+    await tester.pumpAndSettle();
+    expect(g.members.length, 2, reason: 'batal = tidak terjadi apa-apa');
 
-    await tester.tap(find.text('Hapus'));
+    await tester.tap(find.byTooltip('Keluarkan'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Keluarkan').last);
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
     expect(g.members.length, 1);
@@ -236,21 +241,19 @@ void main() {
 
     await tester.tap(find.text('GRUP'));
     await tester.pump(const Duration(milliseconds: 100));
-    await tester.tap(find.text(punyaOrang.name).last);
-    await tester.pumpAndSettle();
 
     expect(find.text('Tambah'), findsNothing);
     expect(find.text('Ubah rute'), findsNothing);
     expect(find.text('Rute ditentukan road captain.'), findsOne);
-    expect(find.text('Hanya road captain yang bisa mengubah daftar anggota.'),
-        findsOne);
+    expect(find.byTooltip('Keluarkan'), findsNothing,
+        reason: 'anggota biasa tidak bisa mengeluarkan orang');
+    expect(find.text('ANGGOTA'), findsOne, reason: 'badge peranku');
 
-    // Menu: keluar dari grup, bukan hapus grup — dan tanpa "Ubah detail".
-    await tester.tap(find.byIcon(Icons.more_vert));
-    await tester.pumpAndSettle();
+    // Menu: keluar dari grup, bukan hapus grup, dan tanpa ubah detail.
     expect(find.text('Keluar dari grup'), findsOne);
     expect(find.text('Hapus grup'), findsNothing);
-    expect(find.text('Ubah detail'), findsNothing);
+    expect(find.text('Ubah detail grup'), findsNothing);
+    expect(find.text('Keluar sebagai road captain'), findsNothing);
 
     trip.pause();
   });
@@ -260,9 +263,11 @@ void main() {
     phone(tester);
     final g = await routedGroup('Hilang Mendadak');
     await openGroupsTab(tester);
-    await tester.tap(find.text(g.name).last);
+    // Halaman detail terbuka seperti sesudah buat/gabung grup.
+    Navigator.of(tester.element(find.text('Grup touring'))).push(
+        MaterialPageRoute(builder: (_) => GroupScreen(group: g)));
     await tester.pumpAndSettle();
-    expect(find.text('GROUP ID'), findsOne);
+    expect(find.widgetWithText(AppBar, g.name), findsOne);
 
     // Grup dihapus dari luar layar ini — mis. road captain menutupnya dari
     // HP lain, atau dihapus di tab Grup.
@@ -351,7 +356,7 @@ void main() {
     final g = await routedGroup('Grup Kedua');
     await openGroupsTab(tester);
 
-    await tester.tap(find.text('Pakai').first);
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Grup Awal'));
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
 
@@ -361,8 +366,8 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
       expect(tester.takeException(), isNull, reason: 'tab $tab');
     }
-    // "Pakai" hanya muncul di grup non-aktif, jadi grup yang tadinya pasif
-    // sekarang yang aktif — bukan grup yang baru dibuat.
+    // Chip yang diketuk menjadikan grup lama aktif lagi, bukan grup yang
+    // baru dibuat.
     expect(trip.activeId, 'AWL-0001');
     expect(g.id, isNot(trip.activeId));
     trip.pause();

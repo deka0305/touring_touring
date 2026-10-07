@@ -18,6 +18,8 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     // trip itu global: init() ulang mengembalikannya ke keadaan awal.
     await trip.init();
+    // Layar nama di awal dilewati; alurnya diuji sendiri di onboard_test.
+    trip.myName = 'Penguji';
     // Pemasangan baru tidak punya grup, dan Shell menampilkan onboarding untuk
     // itu. Test tab butuh satu grup berute supaya shell-nya terbangun.
     pakai(trip, ujiGroup());
@@ -131,8 +133,7 @@ void main() {
 
   testWidgets('layar buat grup menolak form kosong', (tester) async {
     phone(tester);
-
-
+    trip.myName = ''; // pemasangan baru: belum ada nama untuk diisikan
 
     await tester.pumpWidget(MaterialApp(
       theme: buildTheme(true),

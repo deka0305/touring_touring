@@ -83,6 +83,8 @@ void main() {
       ..devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     await trip.init();
+    // Layar nama di awal dilewati; alurnya diuji sendiri di onboard_test.
+    trip.myName = 'Penguji';
     addTearDown(trip.pause);
 
     final g = ujiGroup()
@@ -165,6 +167,45 @@ void main() {
       });
       return s;
     }
+
+    test('alarm: bunyi saat SOS masuk, berhenti saat teratasi + dicatat', () {
+      final s = siap();
+      addTearDown(s.dispose);
+      final kejadian = <String>[];
+      s.onSosAlert = (nama) => kejadian.add('bunyi $nama');
+      s.onSosEnd = () => kejadian.add('diam');
+      final ms = DateTime(2026, 8, 5, 9, 30).millisecondsSinceEpoch;
+
+      s.applySos({'b': ms});
+      s.applySos({'b': ms}); // kiriman ulang tidak membunyikan lagi
+      expect(kejadian, ['bunyi Rio Saputra']);
+
+      s.applySos({});
+      expect(kejadian, ['bunyi Rio Saputra', 'diam']);
+      expect(s.logs.first.title, 'SOS Rio Saputra sudah ditangani');
+    });
+
+    test('tandai teratasi: server gagal = SOS TETAP aktif dan ada pesan',
+        () async {
+      final s = siap();
+      addTearDown(s.dispose);
+      s.active.gid = 'TRG-7KQ2MX';
+      s.applySos({'b': DateTime(2026, 8, 5, 9, 30).millisecondsSinceEpoch});
+      var diam = 0;
+      s.onSosEnd = () => diam++;
+
+      s.serverClearSos = (gid, uid) async => throw StateError('tanpa sinyal');
+      expect(await s.clearSos(), isNotNull);
+      expect(s.sosRider?.uid, 'b', reason: 'anggota lain masih dengar alarm');
+      expect(diam, 0);
+
+      final ditutup = <String>[];
+      s.serverClearSos = (gid, uid) async => ditutup.add(uid);
+      expect(await s.clearSos(), isNull);
+      expect(ditutup, ['b']);
+      expect(s.sosRider, isNull);
+      expect(diam, 1, reason: 'alarm di HP ini ikut berhenti');
+    });
 
     test('SOS anggota lain memunculkan tanda dan masuk riwayat', () {
       final s = siap();

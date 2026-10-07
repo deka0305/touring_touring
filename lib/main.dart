@@ -1,20 +1,29 @@
 import 'package:flutter/material.dart';
 
+import 'alarm.dart';
 import 'data.dart';
 import 'firebase_config.dart';
+import 'screens/chat_screen.dart';
 import 'screens/group_screen.dart';
 import 'screens/groups_screen.dart';
+import 'screens/identity_screen.dart';
 import 'screens/map_screen.dart';
 import 'screens/sos_screen.dart';
 import 'screens/team_screen.dart';
 import 'screens/trip_screen.dart';
 import 'theme.dart';
+import 'voice.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // Cache lokal dibaca lebih dulu, jadi app terbuka walau server tidak
   // terjangkau; data server menyusul begitu tersambung.
   await trip.init(cloud: Cloud(options: defaultOptions));
+  // Mode walkie-talkie: pesan suara baru diputar dari layar mana pun.
+  trip.onNewVoice = (m) => voice.play(m.key);
+  // Sirene SOS di HP semua anggota lain, berhenti begitu SOS teratasi.
+  trip.onSosAlert = (_) => sosAlarm.start();
+  trip.onSosEnd = sosAlarm.stop;
   runApp(const TouringApp());
 }
 
@@ -25,7 +34,7 @@ class TouringApp extends StatelessWidget {
   Widget build(BuildContext context) => ListenableBuilder(
         listenable: trip,
         builder: (_, _) => MaterialApp(
-          title: 'Touring Tracker',
+          title: 'Konvoi',
           debugShowCheckedModeBanner: false,
           theme: buildTheme(trip.dark),
           home: const Shell(),
@@ -60,8 +69,12 @@ class _ShellState extends State<Shell> {
   @override
   Widget build(BuildContext context) => ListenableBuilder(
         listenable: trip,
-        builder: (context, _) =>
-            trip.hasGroup ? _tabShell(context) : const _NoGroup(),
+        // Nama dulu, seperti Keluarr: diisi sekali lalu dipakai di semua grup.
+        builder: (context, _) => trip.myName.isEmpty
+            ? const IdentityScreen()
+            : trip.hasGroup
+                ? _tabShell(context)
+                : const _NoGroup(),
       );
 
   Widget _tabShell(BuildContext context) {
@@ -151,7 +164,7 @@ class _NoGroup extends StatelessWidget {
                       size: 30, color: Color(0xFF12140F)),
                 ),
                 const SizedBox(height: 20),
-                Text('Touring Tracker',
+                Text('Konvoi',
                     style: arch(800, 26, color: p.tx, height: 1.15)),
                 const SizedBox(height: 8),
                 Text(
@@ -342,6 +355,17 @@ class _Header extends StatelessWidget {
             const SizedBox(width: 6),
             _StatChip(trip.count(RiderStatus.berhenti), p.tx2, flat: true),
           ],
+          if (g.onCloud)
+            IconButton(
+              tooltip: 'Obrolan grup',
+              onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const ChatScreen())),
+              icon: Badge(
+                isLabelVisible: trip.chatUnread > 0,
+                label: Text('${trip.chatUnread}'),
+                child: Icon(Icons.forum_outlined, size: 20, color: p.tx2),
+              ),
+            ),
           IconButton(
             tooltip: trip.dark ? 'Mode terang' : 'Mode gelap',
             onPressed: () => trip.toggleTheme(!trip.dark),

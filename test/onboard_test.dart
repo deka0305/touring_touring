@@ -10,6 +10,8 @@ void main() {
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
     await trip.init();
+    // Layar nama di awal dilewati; alurnya diuji sendiri di onboard_test.
+    trip.myName = 'Penguji';
   });
   tearDown(trip.pause);
 
@@ -20,13 +22,31 @@ void main() {
       ..devicePixelRatio = 1;
     addTearDown(tester.view.reset);
 
+    // Pemasangan baru: nama dulu, seperti Keluarr.
+    trip.myName = '';
     await tester.pumpWidget(const TouringApp());
     await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('Halo! Siapa\nnama kamu?'), findsOne);
+    await tester.enterText(find.byType(TextField).first, 'Deden');
+    await tester.enterText(find.byType(TextField).at(1), 'n 1 ab');
+    await tester.enterText(find.byType(TextField).at(2), '0812 3456');
+    await tester.pump();
+    await tester.ensureVisible(find.text('Lanjut'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Lanjut'));
+    await tester.pumpAndSettle();
+    expect(trip.myName, 'Deden');
+    expect(trip.myPlat, 'N 1 AB');
+    expect(trip.myHp, '08123456');
+
     expect(trip.hasGroup, isFalse);
     expect(find.text('Buat grup touring'), findsOne);
 
     await tester.tap(find.text('Buat grup touring'));
     await tester.pumpAndSettle();
+    // Identitas tidak perlu diketik ulang.
+    expect(find.widgetWithText(TextFormField, 'Deden'), findsOne);
+    expect(find.widgetWithText(TextFormField, 'N 1 AB'), findsOne);
 
     await tester.enterText(
         find.widgetWithText(TextFormField, 'Nama touring'), 'Ke Bromo');
@@ -41,7 +61,8 @@ void main() {
 
 
     expect(trip.hasGroup, isTrue);
-    expect(find.text('GROUP ID'), findsOne, reason: 'mendarat di detail grup');
+    expect(find.widgetWithText(AppBar, 'Ke Bromo'), findsOne,
+        reason: 'mendarat di detail grup');
 
     // Kembali dari detail grup: layar di belakangnya harus sudah jadi shell
     // bertab, bukan layar awal yang basi.

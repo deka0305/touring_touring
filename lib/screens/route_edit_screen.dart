@@ -3,10 +3,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart' hide Path;
+import 'package:url_launcher/url_launcher.dart';
 
 import '../data.dart';
 import '../osm.dart';
 import '../theme.dart';
+import 'map_screen.dart' show MapTiles, nearPolyline;
 
 /// Penyusun rute ala Google Maps: daftar tujuan yang bisa digeser urutannya,
 /// pencarian nama tempat, dan garis rute yang menempel ke jalan asli.
@@ -54,7 +56,23 @@ class _RouteEditScreenState extends State<RouteEditScreen> {
     } else if (_stops.length >= 2) {
       _recompute();
     }
+    // Grup baru tanpa titik: mulai dari lokasiku, bukan dari kota acak —
+    // titik pertama hampir selalu tempat kumpul di dekat sini.
+    if (_stops.isEmpty) {
+      currentPosition().then((p) {
+        if (p == null || !mounted || _stops.isNotEmpty) return;
+        if (_mapReady) {
+          _map.move(p, 14);
+        } else {
+          _startAt = p;
+        }
+      });
+    }
   }
+
+  /// Kamera belum boleh disentuh sebelum peta digambar sekali.
+  bool _mapReady = false;
+  LatLng? _startAt;
 
   @override
   void dispose() {
@@ -305,6 +323,35 @@ class _RouteEditScreenState extends State<RouteEditScreen> {
         ),
       );
 
+  Future<void> _routeMenu(LatLng at) async {
+    final pilih = await showModalBottomSheet<String>(
+      context: context,
+      builder: (c) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.add_location_alt_outlined),
+              title: const Text('Tambah titik di sini'),
+              onTap: () => Navigator.pop(c, 'tambah'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.map_outlined),
+              title: const Text('Buka rute di Google Maps'),
+              onTap: () => Navigator.pop(c, 'gmaps'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted) return;
+    if (pilih == 'tambah') _addStopAt(at);
+    if (pilih == 'gmaps') {
+      await launchUrl(googleMapsRoute([for (final s in _stops) s.at], _mode),
+          mode: LaunchMode.externalApplication);
+    }
+  }
+
   Widget _mapPane(List<LatLng> draft, Pal p) => Stack(
         children: [
           FlutterMap(
@@ -317,22 +364,26 @@ class _RouteEditScreenState extends State<RouteEditScreen> {
               interactionOptions: const InteractionOptions(
                 flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
               ),
-              onLongPress: (_, at) => _addStopAt(at),
+              // Tahan di garis rute → pilih tambah titik atau buka di Google
+              // Maps. Di luar garis tetap langsung menambah titik.
+              onLongPress: (_, at) => draft.length >= 2 &&
+                      nearPolyline(_map.camera, draft, at)
+                  ? _routeMenu(at)
+                  : _addStopAt(at),
               // Rute yang dipakai sebagai draf awal tidak lewat _recompute,
               // jadi pembingkaiannya dikerjakan di sini — kalau tidak, layar
               // terbuka dengan peta zoom 11 di titik pertama saja.
               onMapReady: () {
-                if (draft.length >= 2) _fitDraft(draft);
+                _mapReady = true;
+                if (draft.length >= 2) {
+                  _fitDraft(draft);
+                } else if (_startAt != null) {
+                  _map.move(_startAt!, 14);
+                }
               },
             ),
             children: [
-              TileLayer(
-                urlTemplate:
-                    'https://{s}.basemaps.cartocdn.com/${trip.dark ? "dark_all" : "light_all"}/{z}/{x}/{y}{r}.png',
-                subdomains: const ['a', 'b', 'c', 'd'],
-                retinaMode: RetinaMode.isHighDensity(context),
-                userAgentPackageName: 'com.example.touring_touring',
-              ),
+              const MapTiles(),
               // Grup baru bisa punya 0–1 titik; polyline butuh minimal 2.
               if (draft.length >= 2)
                 PolylineLayer(polylines: [
@@ -372,6 +423,12 @@ class _RouteEditScreenState extends State<RouteEditScreen> {
                     ),
                 ],
               ),
+              const RichAttributionWidget(
+                alignment: AttributionAlignment.bottomLeft,
+                attributions: [
+                  TextSourceAttribution('© OpenStreetMap contributors'),
+                ],
+              ),
             ],
           ),
           Positioned(
@@ -384,7 +441,7 @@ class _RouteEditScreenState extends State<RouteEditScreen> {
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(color: p.line),
               ),
-              child: Text('Tahan peta untuk tambah titik',
+              child: Text('Tahan peta: tambah titik · tahan garis: Google Maps',
                   style: mono(500, 10, color: p.tx2)),
             ),
           ),

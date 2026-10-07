@@ -65,6 +65,7 @@
             ".write": "auth != null && (($uid === auth.uid && !root.child('groups').child($gid).child('banned').child(auth.uid).exists()) || root.child('groups').child($gid).child('meta/rcUid').val() === auth.uid)",
             "name": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 40" },
             "plat": { ".validate": "newData.isString() && newData.val().length <= 15" },
+            "hp": { ".validate": "newData.isString() && newData.val().length <= 20" },
             "role": { ".validate": "(newData.val() === 'RIDER' && $uid === auth.uid) || root.child('groups').child($gid).child('meta/rcUid').val() === auth.uid" },
             "joinedMs": { ".validate": "newData.isNumber()" },
             "$other": { ".validate": false }
@@ -73,7 +74,9 @@
 
         "live": {
           "$uid": {
-            ".write": "auth != null && $uid === auth.uid && root.child('groups').child($gid).child('members').child(auth.uid).exists()",
+            // Cabang kedua: road captain boleh MENGHAPUS (bukan menulis) posisi
+            // anggota yang dia keluarkan, supaya markernya tidak menggantung.
+            ".write": "auth != null && (($uid === auth.uid && root.child('groups').child($gid).child('members').child(auth.uid).exists()) || (!newData.exists() && root.child('groups').child($gid).child('meta/rcUid').val() === auth.uid))",
             "lat": { ".validate": "newData.isNumber() && newData.val() >= -90 && newData.val() <= 90" },
             "lng": { ".validate": "newData.isNumber() && newData.val() >= -180 && newData.val() <= 180" },
             "s": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 300" },
@@ -94,7 +97,7 @@
         // membuat rute 1.000 km pun hanya ~50 KB.
         "track": {
           "$uid": {
-            ".write": "auth != null && $uid === auth.uid && root.child('groups').child($gid).child('members').child(auth.uid).exists()",
+            ".write": "auth != null && (($uid === auth.uid && root.child('groups').child($gid).child('members').child(auth.uid).exists()) || (!newData.exists() && root.child('groups').child($gid).child('meta/rcUid').val() === auth.uid))",
             "geom": { ".validate": "newData.isString() && newData.val().length <= 200000" },
             "km": { ".validate": "newData.isNumber() && newData.val() >= 0" },
             "t": { ".validate": "newData.isNumber()" },
@@ -102,9 +105,39 @@
           }
         },
 
+        // SOS: hanya yang bersangkutan yang bisa MENYALAKAN (tidak ada SOS atas
+        // nama orang lain). MENUTUP (hapus) boleh oleh anggota mana pun — yang
+        // sampai duluan ke lokasi menandai masalah teratasi, lewat tombol tahan
+        // 3 detik di app supaya tidak kepencet.
         "sos": {
           "$uid": {
-            ".write": "auth != null && ($uid === auth.uid || root.child('groups').child($gid).child('meta/rcUid').val() === auth.uid)"
+            ".write": "auth != null && ($uid === auth.uid || root.child('groups').child($gid).child('meta/rcUid').val() === auth.uid || (!newData.exists() && root.child('groups').child($gid).child('members').child(auth.uid).exists()))"
+          }
+        },
+
+        // Obrolan grup. Hanya anggota yang boleh menulis, pesan hanya bisa
+        // DITAMBAH (!data.exists()), dan `u` wajib uid penulisnya — tidak ada
+        // cara mengedit pesan orang atau mengirim atas nama orang lain.
+        "chat": {
+          "$id": {
+            ".write": "auth != null && !data.exists() && root.child('groups').child($gid).child('members').child(auth.uid).exists()",
+            ".validate": "newData.hasChildren(['u', 'n', 't']) && (newData.hasChild('x') || newData.hasChild('a'))",
+            "u": { ".validate": "newData.val() === auth.uid" },
+            "n": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 40" },
+            "x": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 1000" },
+            "a": { ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 60" },
+            "t": { ".validate": "newData.isNumber() && newData.val() <= now" },
+            "$other": { ".validate": false }
+          }
+        },
+
+        // Rekaman pesan suara, base64 AAC. Dipisah dari `chat` supaya membuka
+        // obrolan tidak ikut mengunduh semua suara. 200.000 karakter ≈ 60 detik
+        // pada 16 kbps.
+        "audio": {
+          "$id": {
+            ".write": "auth != null && !data.exists() && root.child('groups').child($gid).child('members').child(auth.uid).exists()",
+            ".validate": "newData.isString() && newData.val().length <= 200000"
           }
         },
 

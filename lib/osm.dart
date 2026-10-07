@@ -9,7 +9,7 @@ import 'polyline.dart';
 
 /// Layanan OSM publik: gratis, tanpa API key. Keduanya minta User-Agent yang
 /// jelas dan pemakaian yang sopan — pencarian di UI didebounce.
-const _ua = {'User-Agent': 'touring_touring/1.0 (prototipe touring)'};
+const _ua = {'User-Agent': 'Konvoi/1.0 (app touring rombongan)'};
 const _timeout = Duration(seconds: 12);
 
 class Place {

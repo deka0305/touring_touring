@@ -142,7 +142,7 @@ void main() {
     expect(g.members.where((m) => m.role == 'SWP').length, 1);
     expect(g.sweeper?.name, 'Empat Orang');
 
-    s.removeMember(g, g.sweeper!);
+    await s.removeMember(g, g.sweeper!);
     expect(g.sweeper, isNull);
   });
 
@@ -423,7 +423,7 @@ void main() {
     s.sosUid = 'uid-rc';
     s.sosAt = DateTime(2026, 8, 5, 9, 0);
 
-    s.clearSos();
+    await s.clearSos();
     expect(s.sosUid, isNull);
     expect(s.sosAt, isNull);
     expect(s.logs.first.title, contains('SOS ditutup'));

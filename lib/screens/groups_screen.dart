@@ -4,8 +4,10 @@ import '../data.dart';
 import '../theme.dart';
 import 'group_screen.dart';
 import 'help_screen.dart';
+import 'identity_screen.dart';
 
-/// Layar D — pusat grup. Bikin grup baru, gabung pakai kode, pilih grup aktif.
+/// Tab Grup — dibuat seperti Keluarr: buat/gabung di atas, pilih grup aktif,
+/// lalu isi grup aktif langsung di bawahnya.
 class GroupsScreen extends StatelessWidget {
   const GroupsScreen({super.key, required this.onOpenMap});
   final VoidCallback onOpenMap;
@@ -13,8 +15,9 @@ class GroupsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = Pal.of(context);
+    final g = trip.active;
     return ListView(
-      padding: const EdgeInsets.fromLTRB(18, 0, 18, 12),
+      padding: const EdgeInsets.fromLTRB(18, 0, 18, 24),
       children: [
         const SizedBox(height: 4),
         Row(
@@ -32,11 +35,30 @@ class GroupsScreen extends StatelessWidget {
             ),
           ],
         ),
-        Text(
-          'Grup aktif menentukan rute dan anggota yang tampil di layar lain.',
-          style: arch(400, 13, color: p.tx2, height: 1.5),
+        InkWell(
+          onTap: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => const IdentityScreen(editing: true))),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Row(
+              children: [
+                Icon(Icons.person_outline, size: 16, color: p.tx2),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Kamu: ${trip.myName}'
+                    '${trip.myPlat.isEmpty ? "" : " · ${trip.myPlat}"}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: arch(500, 13, color: p.tx2),
+                  ),
+                ),
+                Text('Ubah', style: arch(700, 13, color: accent)),
+              ],
+            ),
+          ),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 10),
         Row(
           children: [
             Expanded(
@@ -58,24 +80,58 @@ class GroupsScreen extends StatelessWidget {
             ),
           ],
         ),
-        const SizedBox(height: 22),
-        SectionLabel('GRUP SAYA · ${trip.groups.length}'),
-        const SizedBox(height: 8),
-        for (final g in trip.groups)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: _GroupRow(
-              group: g,
-              active: g.id == trip.activeId,
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => GroupScreen(group: g)),
+        if (trip.createdGroups.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => const MyCreatedGroupsScreen())),
+            child: Panel(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              child: Row(
+                children: [
+                  Icon(Icons.history, size: 20, color: p.tx2),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text('Grup yang pernah kamu buat',
+                        style: arch(600, 14, color: p.tx)),
+                  ),
+                  Text('${trip.createdGroups.length}',
+                      style: mono(700, 12, color: p.tx2)),
+                  Icon(Icons.chevron_right, color: p.tx2),
+                ],
               ),
-              onActivate: () {
-                trip.setActive(g.id);
-                onOpenMap();
-              },
             ),
           ),
+        ],
+        if (trip.groups.length > 1) ...[
+          const SizedBox(height: 18),
+          const SectionLabel('PILIH GRUP AKTIF'),
+          const SizedBox(height: 8),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                for (final grp in trip.groups)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: ChoiceChip(
+                      label: Text(grp.name),
+                      selected: grp.id == g.id,
+                      selectedColor: accent,
+                      labelStyle: arch(600, 13,
+                          color: grp.id == g.id
+                              ? const Color(0xFF12140F)
+                              : p.tx),
+                      onSelected: (_) => trip.setActive(grp.id),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+        const SizedBox(height: 16),
+        GroupBody(group: g),
       ],
     );
   }
@@ -86,11 +142,10 @@ class GroupsScreen extends StatelessWidget {
       MaterialPageRoute(builder: (_) => const NewGroupScreen()),
     );
     if (created == null) return;
-    // Langsung ke detail grup: dari sini rute dan anggota diisi.
+    // Langsung ke detail grup: dari sini rute disusun.
     await nav
         .push(MaterialPageRoute(builder: (_) => GroupScreen(group: created)));
   }
-
 }
 
 class _BigAction extends StatelessWidget {
@@ -132,94 +187,89 @@ class _BigAction extends StatelessWidget {
   }
 }
 
-class _GroupRow extends StatelessWidget {
-  const _GroupRow({
-    required this.group,
-    required this.active,
-    required this.onTap,
-    required this.onActivate,
-  });
-  final TripGroup group;
-  final bool active;
-  final VoidCallback onTap, onActivate;
+/// Grup yang pernah dibuat di HP ini — termasuk yang sudah ditinggalkan.
+/// Kodenya tersimpan lokal, jadi road captain bisa masuk lagi tanpa diundang.
+class MyCreatedGroupsScreen extends StatefulWidget {
+  const MyCreatedGroupsScreen({super.key});
+
+  @override
+  State<MyCreatedGroupsScreen> createState() => _MyCreatedGroupsScreenState();
+}
+
+class _MyCreatedGroupsScreenState extends State<MyCreatedGroupsScreen> {
+  String? _busy;
+
+  Future<void> _open(CreatedGroupRef c) async {
+    setState(() => _busy = c.gid);
+    final err = await trip.rejoinCreated(c);
+    if (!mounted) return;
+    setState(() => _busy = null);
+    if (err != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
+      return;
+    }
+    Navigator.pop(context);
+  }
 
   @override
   Widget build(BuildContext context) {
     final p = Pal.of(context);
-    final g = group;
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 12),
-        decoration: BoxDecoration(
-          color: p.surf,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: active ? ok : p.line),
-        ),
-        child: Column(
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 38,
-                  height: 38,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: p.surf2,
-                    borderRadius: BorderRadius.circular(11),
-                  ),
-                  child:
-                      Text(initials(g.club), style: mono(800, 12, color: p.tx2)),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(g.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: arch(700, 14, color: p.tx)),
-                      Text(
-                        '${g.id} · ${g.members.length} rider'
-                        '${g.hasRoute ? " · ${km1(g.km)} km" : ""}',
-                        style: mono(500, 11, color: p.tx2, height: 1.4),
-                      ),
-                    ],
-                  ),
-                ),
-                if (active)
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-                    decoration: BoxDecoration(
-                      color: ok.withValues(alpha: .14),
-                      borderRadius: BorderRadius.circular(7),
-                    ),
-                    child: Text('AKTIF', style: mono(700, 10, color: ok)),
-                  )
-                else
-                  TextButton(
-                    onPressed: onActivate,
-                    child: Text('Pakai', style: arch(700, 12, color: accent)),
-                  ),
-              ],
-            ),
-            if (g.todo.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Row(
+    final list = [...trip.createdGroups]
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: p.surf,
+        surfaceTintColor: Colors.transparent,
+        title: Text('Grup yang pernah kamu buat',
+            style: arch(700, 17, color: p.tx)),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(18, 12, 18, 24),
+        children: [
+          for (final c in list) ...[
+            Panel(
+              child: Row(
                 children: [
-                  Icon(Icons.info_outline, size: 14, color: warn),
-                  const SizedBox(width: 6),
                   Expanded(
-                    child: Text(g.todo.join(' · '),
-                        style: mono(500, 10, color: warn)),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(c.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: arch(700, 15, color: p.tx)),
+                        Text('${c.gid} · ${c.club}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: mono(500, 11, color: p.tx2, height: 1.5)),
+                        Text(
+                          c.leftAt == null
+                              ? 'Kamu masih di grup ini'
+                              : 'Kamu keluar '
+                                  '${fmtAgo(DateTime.now().difference(c.leftAt!))}',
+                          style: arch(400, 12, color: p.tx2),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  FilledButton(
+                    style: FilledButton.styleFrom(
+                        backgroundColor: accent,
+                        foregroundColor: const Color(0xFF12140F)),
+                    onPressed: _busy == null ? () => _open(c) : null,
+                    child: Text(_busy == c.gid
+                        ? '…'
+                        : c.leftAt == null
+                            ? 'Buka'
+                            : 'Masuk lagi'),
                   ),
                 ],
               ),
-            ],
+            ),
+            const SizedBox(height: 10),
           ],
-        ),
+        ],
       ),
     );
   }
@@ -237,8 +287,8 @@ class _NewGroupScreenState extends State<NewGroupScreen> {
   final _form = GlobalKey<FormState>();
   final _name = TextEditingController();
   final _club = TextEditingController();
-  final _me = TextEditingController();
-  final _plat = TextEditingController();
+  final _me = TextEditingController(text: trip.myName);
+  final _plat = TextEditingController(text: trip.myPlat);
   DateTime _when = DateTime.now().add(const Duration(days: 1));
 
   @override
@@ -271,6 +321,7 @@ class _NewGroupScreenState extends State<NewGroupScreen> {
   Future<void> _submit() async {
     if (!_form.currentState!.validate() || _saving) return;
     setState(() => _saving = true);
+    trip.setIdentity(name: _me.text, plat: _plat.text);
     final g = await trip.createGroup(
       name: _name.text,
       club: _club.text,
@@ -279,6 +330,7 @@ class _NewGroupScreenState extends State<NewGroupScreen> {
         name: _me.text.trim(),
         plat: _plat.text.trim().toUpperCase(),
         role: 'RC',
+        hp: trip.myHp,
       ),
     );
     if (!mounted) return;
@@ -440,145 +492,191 @@ class _Field extends StatelessWidget {
   }
 }
 
-/// Gabung grup dengan menempel kode. Fungsi tingkat atas supaya dipakai baik
-/// dari tab Grup maupun dari layar awal yang belum punya grup — satu alur, satu
-/// tempat memperbaikinya.
+/// Gabung grup pakai kode. Fungsi tingkat atas supaya dipakai baik dari tab
+/// Grup maupun dari layar awal yang belum punya grup — satu alur, satu tempat
+/// memperbaikinya.
 Future<void> joinByCode(BuildContext context) async {
   // Diambil sebelum await: layar awal dibongkar begitu grupnya masuk, jadi
-  // context-nya tidak lagi sah untuk push maupun SnackBar.
+  // context-nya tidak lagi sah untuk push.
   final nav = Navigator.of(context);
-  final pesan = ScaffoldMessenger.of(context);
-  var code = '';
-  String? error;
-
-  final group = await showDialog<TripGroup>(
-    context: context,
-    builder: (c) => StatefulBuilder(
-      builder: (c, setLocal) => AlertDialog(
-        title: const Text('Gabung grup'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Tempel kode gabung yang dikirim road captain lewat WhatsApp.',
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              onChanged: (v) => code = v,
-              autofocus: true,
-              maxLines: 3,
-              minLines: 3,
-              decoration: InputDecoration(
-                hintText: 'MnxHUkMtMjAyNnxCcm9tby...',
-                errorText: error,
-                border: const OutlineInputBorder(),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(c), child: const Text('Batal')),
-          TextButton(
-            onPressed: () {
-              try {
-                Navigator.pop(c, TripGroup.fromShareCode(code));
-              } on FormatException catch (e) {
-                setLocal(() => error = e.message);
-              }
-            },
-            child: const Text('Gabung'),
-          ),
-        ],
-      ),
-    ),
+  final joined = await nav.push<TripGroup>(
+    MaterialPageRoute(builder: (_) => const JoinGroupScreen()),
   );
-  if (group == null || !context.mounted) return;
-
-  // Grup di server: tanya identitas, lalu daftarkan diri sungguhan supaya
-  // road captain melihatnya. Grup dari kode lama hanya disalin ke HP ini.
-  Member? me;
-  if (group.onCloud) {
-    me = await _askIdentity(context, group);
-    if (me == null) return;
-  }
-
-  try {
-    await trip.importGroup(group, you: me);
-  } on StateError catch (e) {
-    pesan.showSnackBar(SnackBar(content: Text(e.message)));
-    return;
-  }
-  // Ambil grup yang sudah terpasang: importGroup mengganti objeknya dengan
-  // versi dari server, lengkap dengan rute dan daftar anggota.
-  final joined = trip.groups.firstWhere(
-      (e) => e.gid == group.gid || e.id == group.id,
-      orElse: () => group);
+  if (joined == null) return;
   await nav.push(MaterialPageRoute(builder: (_) => GroupScreen(group: joined)));
 }
 
-/// Siapa yang bergabung. Perannya dipaksa Rider — Security Rules menolak orang
-/// mengangkat dirinya jadi road captain, jadi jangan ditawarkan.
-Future<Member?> _askIdentity(BuildContext context, TripGroup g) {
-  var name = '';
-  var plat = '';
-  final form = GlobalKey<FormState>();
+/// Nama + nomor polisi + kode undangan. Perannya dipaksa Rider — Security
+/// Rules menolak orang mengangkat dirinya jadi road captain.
+class JoinGroupScreen extends StatefulWidget {
+  const JoinGroupScreen({super.key});
 
-  return showDialog<Member>(
-    context: context,
-    builder: (c) => AlertDialog(
-      title: Text('Gabung "${g.name}"'),
-      content: Form(
-        key: form,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
+  @override
+  State<JoinGroupScreen> createState() => _JoinGroupScreenState();
+}
+
+class _JoinGroupScreenState extends State<JoinGroupScreen> {
+  final _form = GlobalKey<FormState>();
+  final _me = TextEditingController(text: trip.myName);
+  final _plat = TextEditingController(text: trip.myPlat);
+  final _code = TextEditingController();
+  String? _error;
+  var _busy = false;
+
+  @override
+  void dispose() {
+    for (final c in [_me, _plat, _code]) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  /// Kode pendek `TRG-XXXXXX`, atau kode panjang versi lama yang ditempel.
+  TripGroup? _parse(String raw) {
+    final pendek = normInviteCode(raw);
+    if (pendek != null) {
+      return TripGroup(
+          gid: pendek, id: '', name: '', club: '', when: DateTime.now());
+    }
+    try {
+      return TripGroup.fromShareCode(raw);
+    } on FormatException {
+      return null;
+    }
+  }
+
+  Future<void> _submit() async {
+    if (!_form.currentState!.validate() || _busy) return;
+    final g = _parse(_code.text);
+    if (g == null) {
+      setState(() => _error = 'Kode tidak dikenali. Contoh: TRG-7KQ2MX');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    trip.setIdentity(name: _me.text, plat: _plat.text);
+    String? err;
+    try {
+      await trip.importGroup(
+        g,
+        // Grup lokal versi lama tidak punya server untuk didaftari.
+        you: g.onCloud
+            ? Member(
+                name: _me.text.trim(),
+                plat: _plat.text.trim().toUpperCase(),
+                role: 'RIDER',
+                hp: trip.myHp)
+            : null,
+      );
+    } on StateError catch (e) {
+      err = e.message;
+    } catch (e) {
+      err = Cloud.isPermissionDenied(e)
+          ? 'Kamu tidak diizinkan gabung ke grup ini.'
+          : 'Gagal gabung. Cek sinyal lalu coba lagi.';
+    }
+    if (!mounted) return;
+    if (err != null) {
+      setState(() {
+        _busy = false;
+        _error = err;
+      });
+      return;
+    }
+    // importGroup memasang versi dari server, lengkap dengan rute dan anggota.
+    final joined = trip.groups.firstWhere(
+        (e) => (g.onCloud && e.gid == g.gid) || e.id == g.id,
+        orElse: () => trip.active);
+    Navigator.pop(context, joined);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = Pal.of(context);
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: p.surf,
+        surfaceTintColor: Colors.transparent,
+        title: Text('Gabung grup', style: arch(700, 17, color: p.tx)),
+      ),
+      body: Form(
+        key: _form,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
           children: [
-            Text('${g.club} · ${fmtWhen(g.when)}'),
-            const SizedBox(height: 4),
-            const Text(
-              'Namamu akan terlihat oleh road captain dan anggota lain.',
-              style: TextStyle(fontSize: 12),
-            ),
-            const SizedBox(height: 14),
-            TextFormField(
-              onChanged: (v) => name = v,
-              autofocus: true,
-              textCapitalization: TextCapitalization.words,
-              decoration: const InputDecoration(
-                  labelText: 'Nama kamu', hintText: 'mis. Rizky Nugroho'),
-              validator: (v) => (v == null || v.trim().length < 2)
-                  ? 'Nama belum diisi.'
-                  : null,
-            ),
+            const SectionLabel('KODE UNDANGAN'),
+            const SizedBox(height: 6),
+            Text('Ketik kode dari road captain, mis. TRG-7KQ2MX.',
+                style: arch(400, 12, color: p.tx2, height: 1.5)),
             const SizedBox(height: 10),
             TextFormField(
-              onChanged: (v) => plat = v,
+              controller: _code,
+              autofocus: true,
               textCapitalization: TextCapitalization.characters,
-              decoration: const InputDecoration(
-                  labelText: 'Nomor polisi', hintText: 'mis. N 1234 AB'),
+              textAlign: TextAlign.center,
+              style: mono(700, 22, color: p.tx, spacing: 3),
+              onChanged: (_) => setState(() => _error = null),
+              validator: (v) =>
+                  (v == null || v.trim().isEmpty) ? 'Kode belum diisi.' : null,
+              decoration: InputDecoration(
+                hintText: 'TRG-XXXXXX',
+                hintStyle: mono(500, 22, color: p.tx2, spacing: 3),
+                errorText: _error,
+                errorMaxLines: 3,
+                filled: true,
+                fillColor: p.surf,
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide(color: p.line),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(color: accent, width: 2),
+                ),
+              ),
             ),
+            const SizedBox(height: 24),
+            const SectionLabel('KAMU · RIDER'),
+            const SizedBox(height: 6),
+            Text('Namamu terlihat oleh road captain dan anggota lain.',
+                style: arch(400, 12, color: p.tx2, height: 1.5)),
+            const SizedBox(height: 10),
+            _Field(controller: _me, label: 'Nama kamu', hint: 'mis. Rizky Nugroho'),
+            const SizedBox(height: 12),
+            _Field(
+              controller: _plat,
+              label: 'Nomor polisi',
+              hint: 'mis. N 1234 AB',
+              caps: true,
+            ),
+            const SizedBox(height: 24),
+            GestureDetector(
+              onTap: _submit,
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: _busy ? p.surf2 : accent,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Text(_busy ? 'Menggabungkan…' : 'Gabung grup',
+                    style: arch(800, 15,
+                        color: _busy ? p.tx2 : const Color(0xFF12140F))),
+              ),
+            ),
+            if (!trip.online) ...[
+              const SizedBox(height: 12),
+              Text(
+                trip.cloudError ?? 'Butuh koneksi untuk gabung grup.',
+                textAlign: TextAlign.center,
+                style: arch(400, 12, color: warn, height: 1.5),
+              ),
+            ],
           ],
         ),
       ),
-      actions: [
-        TextButton(
-            onPressed: () => Navigator.pop(c), child: const Text('Batal')),
-        TextButton(
-          onPressed: () {
-            if (!form.currentState!.validate()) return;
-            Navigator.pop(
-                c,
-                Member(
-                  name: name.trim(),
-                  plat: plat.trim().toUpperCase(),
-                  role: 'RIDER',
-                ));
-          },
-          child: const Text('Gabung'),
-        ),
-      ],
-    ),
-  );
+    );
+  }
 }

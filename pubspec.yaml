@@ -1,5 +1,5 @@
 name: touring_touring
-description: "A new Flutter project."
+description: "Konvoi - touring rombongan: lokasi live, obrolan, dan SOS."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -47,6 +47,8 @@ dependencies:
   share_plus: ^13.3.0
   image_picker: ^1.2.3
   path_provider: ^2.1.6
+  record: ^6.2.1
+  audioplayers: ^6.7.1
 
 dev_dependencies:
   flutter_test:
@@ -58,6 +60,7 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -100,3 +103,14 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+# Ikon app. Buat ulang setelah mengganti gambar: dart run flutter_launcher_icons
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon/icon.png"
+  # Android 8+: ikon adaptif, latar krem + gambar kendaraan di zona aman.
+  adaptive_icon_background: "#F9F5E9"
+  adaptive_icon_foreground: "assets/icon/foreground.png"
+  # App Store menolak ikon dengan kanal alpha.
+  remove_alpha_ios: true

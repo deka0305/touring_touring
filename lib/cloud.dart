@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:firebase_auth/firebase_auth.dart';
@@ -73,15 +74,9 @@ class Cloud {
     return 'Gagal menyambung ke server.';
   }
 
-  /// Kunci grup 16 karakter: sekaligus rahasia yang dibagikan lewat kode.
-  /// Random.secure() supaya tidak bisa diramalkan dari kunci lain.
-  static String newGid() {
-    const alphabet =
-        'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    final rnd = math.Random.secure();
-    return List.generate(16, (_) => alphabet[rnd.nextInt(alphabet.length)])
-        .join();
-  }
+  /// Kunci grup baru = kode undangan pendek yang diketik anggota, jadi kode
+  /// itu memang rahasianya. Random.secure() supaya tidak bisa diramalkan.
+  static String newGid() => newInviteCode(math.Random.secure());
 
   // ── Tulis ────────────────────────────────────────────────────────────────
 
@@ -156,6 +151,15 @@ class Cloud {
     return _need(g.gid).child('members/$key').set(_member(m));
   }
 
+  /// Perbarui identitasku di satu grup. Sengaja `update` tanpa `role`: Rules
+  /// hanya mengizinkan anggota menulis role RIDER untuk dirinya, jadi menulis
+  /// ulang role akan ditolak bagi sweeper/marshal.
+  Future<void> putMyIdentity(String gid,
+          {required String name, required String plat, required String hp}) =>
+      _need(gid)
+          .child('members/$_uid')
+          .update({'name': name, 'plat': plat, 'hp': hp});
+
   /// Keluarkan anggota. [ban] mencekalnya supaya tidak bisa mendaftar ulang
   /// pakai kode gabung yang masih dia pegang — tanpa itu, mengeluarkan orang
   /// tidak berlaku sama sekali. Dipakai false saat seseorang keluar sendiri.
@@ -165,10 +169,12 @@ class Cloud {
       throw StateError('Anggota ini belum punya uid di server.');
     }
     final ref = _need(g.gid);
-    await ref.child('members/$target').remove();
-    // Posisinya juga dihapus; kalau tidak, markernya menggantung di peta
-    // anggota lain sampai ada yang menimpanya.
+    // Posisi dan jejak dihapus DULU, baru keanggotaannya. Rules `live`/`track`
+    // menuntut penulisnya masih anggota — dibalik, penghapusan ini ditolak
+    // dan marker orang yang sudah keluar menggantung di peta anggota lain.
     await ref.child('live/$target').remove();
+    await ref.child('track/$target').remove();
+    await ref.child('members/$target').remove();
     if (ban) await ref.child('banned/$target').set(true);
   }
 
@@ -193,6 +199,7 @@ class Cloud {
         'name': m.name,
         'plat': m.plat,
         'role': m.role,
+        if (m.hp.isNotEmpty) 'hp': m.hp,
         'joinedMs': DateTime.now().millisecondsSinceEpoch,
       };
 
@@ -261,8 +268,22 @@ class Cloud {
   Future<TripGroup?> join(String gid, Member me) async {
     final ref = _need(gid);
     await ref.child('members/$_uid').set(_member(
-        Member(name: me.name, plat: me.plat, role: 'RIDER')));
-    return fetchGroup(gid);
+        Member(name: me.name, plat: me.plat, role: 'RIDER', hp: me.hp)));
+    final g = await fetchGroup(gid);
+    if (g == null) {
+      // Kode salah: jangan tinggalkan baris anggota di node kosong.
+      await ref.child('members/$_uid').remove();
+    } else if (g.rcUid == _uid) {
+      // Road captain masuk lagi ke grupnya sendiri: barisnya tadi ditulis
+      // sebagai RIDER, padahal rcUid masih menunjuk dia.
+      final me2 = Member(
+          name: me.name, plat: me.plat, role: 'RC', uid: _uid, hp: me.hp);
+      await ref.child('members/$_uid').set(_member(me2));
+      for (final m in g.members) {
+        if (m.uid == _uid) m.role = 'RC';
+      }
+    }
+    return g;
   }
 
   // ── Lokasi live ───────────────────────────────────────────────────────────
@@ -381,6 +402,57 @@ class Cloud {
         return out;
       });
 
+  // ── Obrolan ──────────────────────────────────────────────────────────────
+  // Pesan hanya bisa ditambah, tidak diubah: Rules menolak menimpa kunci yang
+  // sudah ada, dan `u` wajib uid penulisnya — tidak ada pesan atas nama orang.
+
+  Future<void> sendChat(String gid, {required String name, required String text}) =>
+      _need(gid).child('chat').push().set({
+        'u': _uid,
+        'n': name,
+        'x': text,
+        't': ServerValue.timestamp,
+      });
+
+  /// Rekaman ditulis lebih dulu ke `audio/{key}`, baru pesannya — kalau
+  /// dibalik, anggota lain bisa menekan putar sebelum suaranya ada.
+  Future<void> sendVoice(String gid,
+      {required String name, required List<int> bytes, required int sec}) async {
+    final ref = _need(gid);
+    final msg = ref.child('chat').push();
+    await ref.child('audio/${msg.key}').set(base64Encode(bytes));
+    await msg.set({'u': _uid, 'n': name, 'a': sec, 't': ServerValue.timestamp});
+  }
+
+  Future<Uint8List?> fetchVoice(String gid, String key) async {
+    final snap = await _need(gid).child('audio/$key').get();
+    final v = snap.value;
+    return v is String ? base64Decode(v) : null;
+  }
+
+  /// 200 pesan terakhir, terlama dulu.
+  Stream<List<ChatMsg>> watchChat(String gid) => _need(gid)
+          .child('chat')
+          .orderByKey()
+          .limitToLast(200)
+          .onValue
+          .map((e) {
+        final out = [
+          for (final entry in _map(e.snapshot.value).entries)
+            if (_map(entry.value) case final v when v['u'] is String)
+              ChatMsg(
+                key: entry.key,
+                uid: v['u'] as String,
+                name: v['n'] as String? ?? '—',
+                text: v['x'] as String? ?? '',
+                voiceSec: (v['a'] as num?)?.toInt() ?? 0,
+                atMs: (v['t'] as num?)?.toInt() ?? 0,
+              ),
+        ];
+        // Kunci push urut waktu; Map dari RTDB tidak menjamin urutan.
+        return out..sort((a, b) => a.key.compareTo(b.key));
+      });
+
   DatabaseReference _need(String? gid) {
     final r = _root;
     if (r == null) throw StateError('Firebase belum siap.');
@@ -426,6 +498,7 @@ class Cloud {
               name: mm['name'] as String? ?? '—',
               plat: mm['plat'] as String? ?? '',
               role: mm['role'] as String? ?? 'RIDER',
+              hp: mm['hp'] as String? ?? '',
             ),
       ],
     );

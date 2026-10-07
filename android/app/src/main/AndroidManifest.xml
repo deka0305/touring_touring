@@ -1,6 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- Tile peta CARTO, font Google, dan share ke WhatsApp. -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
     <!-- Perekaman jejak jalan terus saat layar mati, lewat layanan foreground
@@ -26,7 +27,7 @@
         </intent>
     </queries>
     <application
-        android:label="touring_touring"
+        android:label="Konvoi"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

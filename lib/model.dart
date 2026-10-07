@@ -107,24 +107,29 @@ class Member {
     required this.plat,
     required this.role,
     this.uid,
+    this.hp = '',
   });
 
   String name;
   String plat;
   String role;
 
+  /// Nomor HP, opsional. Dipakai tombol Telepon saat dia kirim SOS.
+  String hp;
+
   /// uid Firebase pemilik baris ini. Null untuk anggota yang hanya ada di HP
   /// ini, mis. grup yang dibuat sebelum tersambung ke server.
   String? uid;
 
   Map<String, dynamic> toJson() =>
-      {'n': name, 'p': plat, 'r': role, if (uid != null) 'u': uid};
+      {'n': name, 'p': plat, 'r': role, if (uid != null) 'u': uid, if (hp.isNotEmpty) 'h': hp};
 
   static Member fromJson(Map<String, dynamic> j) => Member(
         name: j['n'] as String,
         plat: j['p'] as String,
         role: j['r'] as String,
         uid: j['u'] as String?,
+        hp: j['h'] as String? ?? '',
       );
 }
 
@@ -302,6 +307,12 @@ class TripGroup {
   ///   Koordinat dibulatkan ke 5 desimal (± 1 m) dan ditulis sebagai selisih
   ///   dari titik sebelumnya dalam basis 36.
   String get shareCode => gid != null ? _cloudCode(gid!) : _localCode();
+
+  /// Yang dibagikan ke anggota. Grup baru memakai kode pendek `TRG-XXXXXX`
+  /// yang memang kunci servernya; grup lama (kunci 16 karakter) masih memakai
+  /// kode panjang yang ditempel.
+  String get inviteCode =>
+      gid != null && isInviteCode(gid!) ? gid! : shareCode;
 
   String _cloudCode(String key) => _pack(
         StringBuffer()
@@ -628,3 +639,129 @@ String newLocalMemberKey(math.Random rnd) {
 }
 
 double bearingDeg(LatLng a, LatLng b) => (_dist.bearing(a, b) + 360) % 360;
+
+/// Tautan rute untuk dibuka di app Google Maps: titik pertama jadi asal,
+/// terakhir tujuan, sisanya titik singgah. Gratis, tanpa API key.
+///
+/// Google Maps menerima paling banyak 9 titik singgah; kalau lebih, diambil
+/// merata supaya bentuk rutenya tetap terwakili. Tol tidak bisa dihindari
+/// lewat tautan — untuk motor, pilih "Hindari tol" di Google Maps-nya.
+Uri googleMapsRoute(List<LatLng> titik, TripMode mode) {
+  String ll(LatLng p) => '${p.latitude},${p.longitude}';
+  final tengah = titik.length > 2 ? titik.sublist(1, titik.length - 1) : <LatLng>[];
+  final singgah = tengah.length <= 9
+      ? tengah
+      : [for (var i = 0; i < 9; i++) tengah[(i * (tengah.length - 1) / 8).round()]];
+  return Uri.https('www.google.com', '/maps/dir/', {
+    'api': '1',
+    'origin': ll(titik.first),
+    'destination': ll(titik.last),
+    if (singgah.isNotEmpty) 'waypoints': singgah.map(ll).join('|'),
+    'travelmode': switch (mode) {
+      TripMode.motor || TripMode.mobil => 'driving',
+      TripMode.sepeda => 'bicycling',
+      TripMode.lari => 'walking',
+    },
+  });
+}
+
+/// Kode undangan yang diketik anggota, sekaligus kunci grup di server.
+/// 6 karakter tanpa huruf/angka yang gampang tertukar (I, O, 0, 1): ±1 miliar
+/// kemungkinan — cukup untuk tidak ketemu dengan menebak-nebak.
+String newInviteCode(math.Random rnd) {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  return 'TRG-${List.generate(6, (_) => alphabet[rnd.nextInt(alphabet.length)]).join()}';
+}
+
+final _invite = RegExp(r'^TRG-?([A-Z2-9]{6})$');
+
+bool isInviteCode(String s) => _invite.hasMatch(s);
+
+/// Rapikan ketikan anggota: huruf besar, spasi dibuang, tanda hubung dipasang.
+/// Null kalau bukan kode pendek — mungkin kode panjang versi lama.
+String? normInviteCode(String raw) {
+  final m = _invite.firstMatch(raw.replaceAll(RegExp(r'\s'), '').toUpperCase());
+  return m == null ? null : 'TRG-${m.group(1)}';
+}
+
+/// Grup yang pernah kubuat sendiri. Kodenya disimpan di HP ini supaya road
+/// captain yang keluar bisa masuk lagi tanpa diundang ulang — di server dia
+/// tetap `rcUid`.
+class CreatedGroupRef {
+  CreatedGroupRef({
+    required this.gid,
+    required this.name,
+    required this.club,
+    required this.createdAt,
+    required this.myName,
+    required this.myPlat,
+    this.leftAt,
+  });
+
+  final String gid;
+  String name;
+  String club;
+
+  /// Identitasku di grup itu, dipakai lagi saat masuk kembali.
+  final String myName;
+  final String myPlat;
+  final DateTime createdAt;
+
+  /// Null berarti aku masih di dalam grupnya.
+  DateTime? leftAt;
+
+  Map<String, dynamic> toJson() => {
+        'g': gid,
+        'n': name,
+        'c': club,
+        'at': createdAt.millisecondsSinceEpoch,
+        'mn': myName,
+        'mp': myPlat,
+        if (leftAt != null) 'left': leftAt!.millisecondsSinceEpoch,
+      };
+
+  static CreatedGroupRef fromJson(Map<String, dynamic> j) => CreatedGroupRef(
+        gid: j['g'] as String,
+        name: j['n'] as String,
+        club: j['c'] as String? ?? '',
+        createdAt: DateTime.fromMillisecondsSinceEpoch(j['at'] as int),
+        myName: j['mn'] as String? ?? 'Road Captain',
+        myPlat: j['mp'] as String? ?? '',
+        leftAt: j['left'] == null
+            ? null
+            : DateTime.fromMillisecondsSinceEpoch(j['left'] as int),
+      );
+}
+
+/// Satu pesan obrolan grup: teks, atau pesan suara ([voiceSec] > 0).
+/// Rekaman suaranya sendiri disimpan terpisah di `audio/{key}` dan baru
+/// diunduh saat diputar, supaya membuka obrolan tidak menyedot kuota.
+class ChatMsg {
+  const ChatMsg({
+    required this.key,
+    required this.uid,
+    required this.name,
+    required this.text,
+    required this.voiceSec,
+    required this.atMs,
+  });
+
+  final String key;
+  final String uid;
+  final String name;
+  final String text;
+  final int voiceSec;
+  final int atMs;
+
+  bool get isVoice => voiceSec > 0;
+  DateTime get at => DateTime.fromMillisecondsSinceEpoch(atMs);
+}
+
+/// "baru saja", "5 mnt lalu", "2 jam lalu".
+String fmtAgo(Duration d) => d.inMinutes < 1
+    ? 'baru saja'
+    : d.inHours < 1
+        ? '${d.inMinutes} mnt lalu'
+        : d.inDays < 1
+            ? '${d.inHours} jam lalu'
+            : '${d.inDays} hari lalu';

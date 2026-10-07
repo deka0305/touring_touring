@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart' hide Path;
+import 'package:url_launcher/url_launcher.dart';
 
 import '../data.dart';
 import '../theme.dart';
@@ -27,10 +28,35 @@ class _MapScreenState extends State<MapScreen> {
   bool _showRoute = true;
   bool _showTrack = true;
 
+  /// Posisiku dari sekali-ambil GPS saat peta dibuka. Selama merekam, posisi
+  /// dari jejak yang dipakai (lebih segar) — lihat [_me].
+  LatLng? _gps;
+
+  /// Kamera menyorot aku (default, seperti Google Maps) atau rombongan/rute.
+  bool _focusMe = true;
+
+  LatLng? get _me => trip.recording && trip.track.points.isNotEmpty
+      ? trip.track.points.last
+      : _gps;
+
   @override
   void initState() {
     super.initState();
     trip.addListener(_onTick);
+    _locate();
+  }
+
+  /// Ambil posisiku lalu sorot. Posisi terakhir HP dipakai dulu supaya
+  /// langsung terasa, fix segar menyusul dan menggeser kalau beda.
+  Future<void> _locate() async {
+    void pakai(LatLng p) {
+      if (!mounted) return;
+      setState(() => _gps = p);
+      if (_follow && _focusMe) _fit(force: true);
+    }
+
+    final p = await currentPosition(onFresh: pakai);
+    if (p != null) pakai(p);
   }
 
   @override
@@ -46,13 +72,29 @@ class _MapScreenState extends State<MapScreen> {
   bool _mapReady = false;
 
   void _onTick() {
-    if (_follow && mounted && trip.live) _fit();
+    if (!_follow || !mounted) return;
+    if (_focusMe && _me != null) {
+      _fit();
+    } else if (trip.live) {
+      _fit();
+    }
   }
 
   /// Bingkai leader + sweeper. Hanya digeser kalau salah satu keluar frame,
   /// biar peta nggak "gelisah" tiap kiriman posisi.
   void _fit({bool force = false}) {
     if (!_mapReady) return;
+    final me = _me;
+    if (_focusMe && me != null) {
+      final cam = _ctrl.camera;
+      // Digeser hanya kalau aku sudah menjauh dari tengah — peta yang terus
+      // bergeser tiap fix GPS bikin pusing.
+      final o = cam.latLngToScreenOffset(me);
+      final c = cam.size.center(Offset.zero);
+      if (!force && (o - c).distance < cam.size.shortestSide * .2) return;
+      _ctrl.move(me, force ? math.max(cam.zoom, 15) : cam.zoom);
+      return;
+    }
     if (!trip.live) return _fitRoute();
     final cam = _ctrl.camera;
     final inset = 70.0;
@@ -95,7 +137,7 @@ class _MapScreenState extends State<MapScreen> {
       LocationShareResult.ditolak =>
         'Izin lokasi ditolak. Coba lagi dan pilih Izinkan.',
       LocationShareResult.ditolakPermanen =>
-        'Izin lokasi diblokir. Buka Pengaturan → Aplikasi → Touring Tracker → '
+        'Izin lokasi diblokir. Buka Pengaturan → Aplikasi → Konvoi → '
             'Izin → Lokasi.',
       LocationShareResult.layananMati =>
         'GPS mati. Nyalakan lokasi di HP-mu dulu.',
@@ -154,7 +196,8 @@ class _MapScreenState extends State<MapScreen> {
     // digambar. Kalau ada posisi rider, petanya harus tampil walau rutenya
     // belum disusun — melacak anggota tidak butuh rute, dan dulu syarat
     // `!routeReady` di sini menyembunyikan seluruh rombongan.
-    if (!routeReady && !live) {
+    final me = _me;
+    if (!routeReady && !live && me == null) {
       // FlutterMap dilepas di cabang ini, jadi kameranya tidak sah lagi.
       _mapReady = false;
       // Tombol MULAI tetap ada di sini. Merekam jejak GPS tidak butuh rute —
@@ -184,10 +227,9 @@ class _MapScreenState extends State<MapScreen> {
                 options: MapOptions(
                   // Tanpa rute, pointAt() memberi LatLng(0,0) — Teluk Guinea,
                   // ribuan km dari rombongan. Pakai posisi rider kalau ada.
-                  initialCenter: routeReady
-                      ? pointAt(0.575)
-                      : trip.riders.first.pos,
-                  initialZoom: 12.6,
+                  initialCenter: me ??
+                      (routeReady ? pointAt(0.575) : trip.riders.first.pos),
+                  initialZoom: me != null ? 15 : 12.6,
                   interactionOptions: const InteractionOptions(
                     flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
                   ),
@@ -198,15 +240,15 @@ class _MapScreenState extends State<MapScreen> {
                     _mapReady = true;
                     _fit(force: true);
                   },
+                  // Tahan garis rute → buka di app Google Maps.
+                  onLongPress: (_, at) {
+                    if (!_showRoute || !routeReady) return;
+                    if (!nearPolyline(_ctrl.camera, route, at)) return;
+                    openInGoogleMaps(context, trip.active);
+                  },
                 ),
                 children: [
-                  TileLayer(
-                    urlTemplate:
-                        'https://{s}.basemaps.cartocdn.com/${trip.dark ? "dark_all" : "light_all"}/{z}/{x}/{y}{r}.png',
-                    subdomains: const ['a', 'b', 'c', 'd'],
-                    retinaMode: RetinaMode.isHighDensity(context),
-                    userAgentPackageName: 'com.example.touring_touring',
-                  ),
+                  const MapTiles(),
                   PolylineLayer(polylines: [
                     // Rute rencana. Diredupkan saat jejak ditampilkan supaya
                     // jejaknya yang menonjol, tapi tidak pernah disembunyikan:
@@ -262,10 +304,11 @@ class _MapScreenState extends State<MapScreen> {
                     _PinLayer(onSeeSos: widget.onSeeSos),
                   ] else
                     _StopLayer(),
+                  _MeLayer(pos: me),
                   RichAttributionWidget(
                     alignment: AttributionAlignment.bottomLeft,
                     attributions: [
-                      TextSourceAttribution('OpenStreetMap · CARTO',
+                      TextSourceAttribution('© OpenStreetMap contributors',
                           onTap: null),
                     ],
                   ),
@@ -278,6 +321,10 @@ class _MapScreenState extends State<MapScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    if (!routeReady && !live)
+                      _NoRouteCard(
+                          onEdit: _editRoute, canEdit: trip.amRc(trip.active))
+                    else
                     _GlassCard(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -301,6 +348,9 @@ class _MapScreenState extends State<MapScreen> {
                                   style: mono(600, 12, color: p.tx2)),
                             ],
                           )),
+                          if (routeReady && _showRoute)
+                            Text('Tahan garis rute → Google Maps',
+                                style: mono(500, 9, color: p.tx2)),
                         ],
                       ),
                     ),
@@ -317,14 +367,37 @@ class _MapScreenState extends State<MapScreen> {
                 child: Column(
                   children: [
                     _MapButton(
-                      icon: Icons.center_focus_strong,
-                      active: _follow && live,
-                      tooltip: live ? 'Ikuti rombongan' : 'Lihat seluruh rute',
+                      icon: Icons.my_location,
+                      active: _follow && _focusMe && me != null,
+                      tooltip: 'Lokasiku',
                       onTap: () {
-                        setState(() => _follow = true);
-                        _fit(force: true);
+                        setState(() {
+                          _follow = true;
+                          _focusMe = true;
+                        });
+                        if (me == null) {
+                          _locate();
+                        } else {
+                          _fit(force: true);
+                        }
                       },
                     ),
+                    if (live || routeReady) ...[
+                      const SizedBox(height: 8),
+                      _MapButton(
+                        icon: Icons.center_focus_strong,
+                        active: _follow && !_focusMe,
+                        tooltip:
+                            live ? 'Ikuti rombongan' : 'Lihat seluruh rute',
+                        onTap: () {
+                          setState(() {
+                            _follow = true;
+                            _focusMe = false;
+                          });
+                          _fit(force: true);
+                        },
+                      ),
+                    ],
                     if (trip.amRc(trip.active)) ...[
                       const SizedBox(height: 8),
                       _MapButton(
@@ -381,6 +454,38 @@ class _MapScreenState extends State<MapScreen> {
 }
 
 /// Grup aktif belum punya rute — tidak ada yang bisa digambar di peta.
+/// Kartu ringkas "rute belum disusun" di atas peta — peta tetap menampilkan
+/// lokasiku walau grupnya belum punya rute.
+class _NoRouteCard extends StatelessWidget {
+  const _NoRouteCard({required this.onEdit, required this.canEdit});
+  final VoidCallback onEdit;
+  final bool canEdit;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = Pal.of(context);
+    return _GlassCard(
+      child: Row(
+        children: [
+          Icon(Icons.route_outlined, size: 20, color: p.tx2),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              canEdit ? 'Rute belum disusun' : 'Menunggu rute dari road captain',
+              style: arch(700, 13, color: p.tx),
+            ),
+          ),
+          if (canEdit)
+            GestureDetector(
+              onTap: onEdit,
+              child: Text('Susun', style: arch(800, 13, color: accent)),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 class _EmptyRoute extends StatelessWidget {
   const _EmptyRoute({required this.onEdit, required this.canEdit});
   final VoidCallback onEdit;
@@ -792,7 +897,11 @@ class _RiderLayer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cam = MapCamera.of(context);
-    final order = trip.riders.toList()..sort((a, b) => b.p.compareTo(a.p));
+    // Posisiku sendiri digambar _MeLayer dari GPS HP ini — lebih segar daripada
+    // gema dari server, jadi jangan digambar dua kali.
+    final aku = _MeLayer.at() != null ? trip.myUid : null;
+    final order = trip.riders.where((r) => aku == null || r.uid != aku).toList()
+      ..sort((a, b) => b.p.compareTo(a.p));
     final taken = <Offset>[];
     final big = <int>{};
     for (final r in order) {
@@ -814,7 +923,12 @@ class _RiderLayer extends StatelessWidget {
                   point: r.pos,
                   width: 22,
                   height: 22,
-                  child: NavArrow(size: 18, color: Color(r.status.color), deg: r.head),
+                  child: RiderDot(
+                    size: 20,
+                    color: riderColor(r.status),
+                    deg: r.head,
+                    pulse: r.status != RiderStatus.hilang,
+                  ),
                 )
               else
                 Marker(
@@ -823,7 +937,7 @@ class _RiderLayer extends StatelessWidget {
                   height: 7,
                   child: DecoratedBox(
                     decoration: BoxDecoration(
-                      color: Color(r.status.color),
+                      color: riderColor(r.status),
                       shape: BoxShape.circle,
                       boxShadow: [
                         BoxShadow(
@@ -892,21 +1006,27 @@ class _PinLayer extends StatelessWidget {
     final p = Pal.of(context);
     final cam = MapCamera.of(context);
     final sosR = trip.sosRider;
-    final pins = <(Rider, String, bool)>[
-      (trip.leader, '${trip.leader.name.split(" ").first} · Road Captain', false),
-      (trip.sweeper, 'Sweeper', false),
-      if (sosR != null) (sosR, '${sosR.name.split(" ").first} butuh bantuan', true),
+    final pins = <(Rider, String)>[
+      (trip.leader, '${trip.leader.name.split(" ").first} · Road Captain'),
+      (trip.sweeper, 'Sweeper'),
+      if (sosR != null) (sosR, '${sosR.name.split(" ").first} butuh bantuan'),
     ];
 
     return MarkerLayer(
       markers: [
-        for (final (r, label, ring) in pins)
+        for (final (r, label) in pins)
+          // Diriku sudah ditandai "KAMU" oleh _MeLayer.
+          if (_MeLayer.at() == null || r.uid == null || r.uid != trip.myUid)
           () {
             // Label dibalik ke kiri kalau pin sudah dekat tepi kanan.
             final flip =
                 cam.latLngToScreenOffset(r.pos).dx > cam.size.width - 150;
-            final arrow = NavArrow(
-                size: 32, color: Color(r.status.color), deg: r.head, ring: ring);
+            final arrow = RiderDot(
+                size: 32,
+                color: riderColor(r.status),
+                deg: r.head,
+                icon: true,
+                pulse: r.status != RiderStatus.hilang);
             return Marker(
               point: r.pos,
               width: 230,
@@ -945,57 +1065,236 @@ class _PinLayer extends StatelessWidget {
       );
 }
 
-/// Penanda rider: bulatan berwarna + segitiga arah + (opsional) ring denyut.
-class NavArrow extends StatelessWidget {
-  const NavArrow({
+/// Petak peta untuk semua layar peta. OpenStreetMap: gratis dan tanpa API
+/// key. Dulu CARTO, tapi CARTO kini mewajibkan API key dan membalas tiap
+/// petak dengan gambar "API KEY REQUIRED".
+///
+/// Kebijakan tile OSM menuntut User-Agent yang jelas dan atribusi terlihat —
+/// keduanya dipenuhi (atribusi ada di tiap peta). Tema gelap dibuat dengan
+/// membalik warna petak terang, karena OSM tidak punya petak gelap gratis.
+class MapTiles extends StatelessWidget {
+  const MapTiles({super.key});
+
+  static const _gelap = ColorFilter.matrix(<double>[
+    -0.95, 0, 0, 0, 245,
+    0, -0.95, 0, 0, 245,
+    0, 0, -0.95, 0, 245,
+    0, 0, 0, 1, 0,
+  ]);
+
+  @override
+  Widget build(BuildContext context) {
+    final tiles = TileLayer(
+      urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+      userAgentPackageName: 'com.example.touring_touring',
+      maxNativeZoom: 19,
+    );
+    return trip.dark ? ColorFiltered(colorFilter: _gelap, child: tiles) : tiles;
+  }
+}
+
+/// True kalau [at] berada dalam [px] piksel layar dari garis [pts]. Diukur di
+/// layar, bukan meter, supaya terasa sama di zoom berapa pun.
+bool nearPolyline(MapCamera cam, List<LatLng> pts, LatLng at,
+    {double px = 28}) {
+  final t = cam.latLngToScreenOffset(at);
+  for (var i = 0; i + 1 < pts.length; i++) {
+    final a = cam.latLngToScreenOffset(pts[i]);
+    final b = cam.latLngToScreenOffset(pts[i + 1]);
+    final ab = b - a;
+    final len2 = ab.dx * ab.dx + ab.dy * ab.dy;
+    final u = len2 == 0
+        ? 0.0
+        : (((t - a).dx * ab.dx + (t - a).dy * ab.dy) / len2).clamp(0.0, 1.0);
+    if ((a + ab * u - t).distance <= px) return true;
+  }
+  return false;
+}
+
+/// Buka rute grup di app Google Maps (gratis, lewat tautan biasa).
+Future<void> openInGoogleMaps(BuildContext context, TripGroup g) async {
+  final titik = [for (final s in g.stops) s.at];
+  if (titik.length < 2) return;
+  final ok = await launchUrl(googleMapsRoute(titik, g.mode),
+      mode: LaunchMode.externalApplication);
+  if (!ok && context.mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Google Maps tidak bisa dibuka.')));
+  }
+}
+
+/// Posisiku sendiri dari GPS HP ini, selama merekam — titik oranye "KAMU".
+/// Tampil juga di grup yang belum ada di server (tanpa posisi dari server).
+class _MeLayer extends StatelessWidget {
+  const _MeLayer({required this.pos});
+  final LatLng? pos;
+
+  /// Posisiku dari perekaman. Dipakai lapisan lain untuk tidak menggambar
+  /// diriku dua kali (gema dari server).
+  static LatLng? at() => trip.recording && trip.track.points.isNotEmpty
+      ? trip.track.points.last
+      : null;
+
+  @override
+  Widget build(BuildContext context) {
+    final pos = this.pos;
+    if (pos == null) return const SizedBox.shrink();
+    final pts = trip.track.points;
+    final deg =
+        pts.length >= 2 ? bearingDeg(pts[pts.length - 2], pts.last) : 0.0;
+    return MarkerLayer(
+      markers: [
+        Marker(
+          point: pos,
+          width: 80,
+          height: 58,
+          alignment: const Alignment(0, -0.1),
+          child: Column(
+            children: [
+              RiderDot(size: 30, color: accent, deg: deg),
+              const SizedBox(height: 4),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: accent,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text('KAMU',
+                    style: mono(800, 9, color: const Color(0xFF12140F))),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Warna rider di peta. Oranye = aman/jalan. Status yang perlu perhatian tetap
+/// pakai warnanya sendiri supaya menonjol; yang sinyalnya hilang jadi abu-abu
+/// dan TIDAK berkedip — kedip berarti posisi GPS-nya masih segar.
+Color riderColor(RiderStatus s) => switch (s) {
+      RiderStatus.sos => bad,
+      RiderStatus.tertinggal => warn,
+      RiderStatus.hilang => grey,
+      _ => accent,
+    };
+
+/// Penanda rider: bulatan oranye bertepi putih, cincin berdenyut, dan segitiga
+/// kecil penunjuk arah — seperti titik lokasi di Google Maps.
+class RiderDot extends StatefulWidget {
+  const RiderDot({
     super.key,
     required this.size,
     required this.color,
     required this.deg,
-    this.ring = false,
+    this.pulse = true,
+    this.icon = false,
   });
 
   final double size;
   final Color color;
   final double deg;
-  final bool ring;
+  final bool pulse;
+
+  /// Ikon motor di tengah — hanya untuk penanda besar, di ukuran kecil cuma
+  /// jadi noda.
+  final bool icon;
 
   @override
-  Widget build(BuildContext context) => SizedBox(
-        width: size,
-        height: size,
-        child: Stack(
-          clipBehavior: Clip.none,
-          alignment: Alignment.center,
-          children: [
-            if (ring) _PulseRing(color: color, size: size),
-            Transform.rotate(
-              angle: deg * math.pi / 180,
-              child: Align(
-                alignment: Alignment.topCenter,
-                child: Transform.translate(
-                  offset: Offset(0, -size * 0.3),
-                  child: CustomPaint(
-                    size: Size(size * 0.42, size * 0.34),
-                    painter: _Triangle(color),
+  State<RiderDot> createState() => _RiderDotState();
+}
+
+class _RiderDotState extends State<RiderDot>
+    with SingleTickerProviderStateMixin {
+  late final _a = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1600),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.pulse) _a.repeat();
+  }
+
+  @override
+  void didUpdateWidget(RiderDot old) {
+    super.didUpdateWidget(old);
+    if (widget.pulse && !_a.isAnimating) _a.repeat();
+    if (!widget.pulse && _a.isAnimating) _a.stop();
+  }
+
+  @override
+  void dispose() {
+    _a.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = widget.size;
+    final c = widget.color;
+    return SizedBox(
+      width: s,
+      height: s,
+      child: Stack(
+        clipBehavior: Clip.none,
+        alignment: Alignment.center,
+        children: [
+          if (widget.pulse)
+            AnimatedBuilder(
+              animation: _a,
+              builder: (_, _) => Transform.scale(
+                scale: 1 + _a.value * 1.6,
+                child: Opacity(
+                  opacity: (1 - _a.value) * .55,
+                  child: Container(
+                    width: s,
+                    height: s,
+                    decoration: BoxDecoration(color: c, shape: BoxShape.circle),
                   ),
                 ),
               ),
             ),
-            Container(
-              decoration: BoxDecoration(
-                color: color,
-                shape: BoxShape.circle,
-                border: Border.all(
-                    color: const Color(0xFF08090B).withValues(alpha: .8),
-                    width: 2),
+          // Segitiga arah di luar bulatan, berputar mengikuti heading GPS.
+          Transform.rotate(
+            angle: widget.deg * math.pi / 180,
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: Transform.translate(
+                offset: Offset(0, -s * 0.36),
+                child: CustomPaint(
+                  size: Size(s * 0.4, s * 0.28),
+                  painter: _Triangle(c),
+                ),
               ),
-              child: Icon(Icons.two_wheeler,
-                  size: size * 0.58, color: const Color(0xFF0B0D10)),
             ),
-          ],
-        ),
-      );
+          ),
+          Container(
+            width: s * .78,
+            height: s * .78,
+            decoration: BoxDecoration(
+              color: c,
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white, width: s * .11),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: .35),
+                  blurRadius: 4,
+                  offset: const Offset(0, 1),
+                ),
+              ],
+            ),
+            child: widget.icon
+                ? Icon(Icons.two_wheeler,
+                    size: s * 0.4, color: const Color(0xFF0B0D10))
+                : null,
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _Triangle extends CustomPainter {
@@ -1014,46 +1313,6 @@ class _Triangle extends CustomPainter {
 
   @override
   bool shouldRepaint(_Triangle old) => old.color != color;
-}
-
-class _PulseRing extends StatefulWidget {
-  const _PulseRing({required this.color, required this.size});
-  final Color color;
-  final double size;
-
-  @override
-  State<_PulseRing> createState() => _PulseRingState();
-}
-
-class _PulseRingState extends State<_PulseRing>
-    with SingleTickerProviderStateMixin {
-  late final _a = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 1400),
-  )..repeat();
-
-  @override
-  void dispose() {
-    _a.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => AnimatedBuilder(
-        animation: _a,
-        builder: (_, _) => Transform.scale(
-          scale: 1 + _a.value * 1.8,
-          child: Opacity(
-            opacity: (1 - _a.value) * .6,
-            child: Container(
-              width: widget.size,
-              height: widget.size,
-              decoration:
-                  BoxDecoration(color: widget.color, shape: BoxShape.circle),
-            ),
-          ),
-        ),
-      );
 }
 
 /// Sheet bawah: kartu RC & sweeper, plus chip anggota yang perlu dipantau.

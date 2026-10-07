@@ -20,6 +20,10 @@ class Saved {
     required this.logs,
     required this.dark,
     required this.tracks,
+    this.created = const [],
+    this.myName = '',
+    this.myPlat = '',
+    this.myHp = '',
   });
 
   final List<TripGroup> groups;
@@ -30,6 +34,14 @@ class Saved {
   /// Jejak perjalanan per Group ID. Lokal saja — tidak pernah dikirim ke
   /// server, jadi ini satu-satunya tempat ia bertahan kalau app ditutup.
   final Map<String, Track> tracks;
+
+  /// Grup yang pernah kubuat — jalan masuk lagi untuk road captain yang keluar.
+  final List<CreatedGroupRef> created;
+
+  /// Identitasku, diisi sekali di layar awal lalu dipakai tiap buat/gabung grup.
+  final String myName;
+  final String myPlat;
+  final String myHp;
 }
 
 Future<Saved?> loadState() async {
@@ -52,6 +64,13 @@ Future<Saved?> loadState() async {
         for (final e in (j['tracks'] as Map? ?? const {}).entries)
           e.key.toString(): Track.fromJson(e.value as Map<String, dynamic>),
       },
+      created: [
+        for (final c in (j['created'] as List? ?? []))
+          CreatedGroupRef.fromJson(c as Map<String, dynamic>),
+      ],
+      myName: j['meName'] as String? ?? '',
+      myPlat: j['mePlat'] as String? ?? '',
+      myHp: j['meHp'] as String? ?? '',
     );
   } catch (e) {
     // Data rusak atau dari versi lama: mulai bersih daripada gagal buka app.
@@ -71,6 +90,10 @@ Future<void> saveState(Saved s) async {
       for (final e in s.tracks.entries)
         if (e.value.points.isNotEmpty) e.key: e.value.toJson(),
     },
+    'created': [for (final c in s.created) c.toJson()],
+    'meName': s.myName,
+    'mePlat': s.myPlat,
+    'meHp': s.myHp,
   });
   await (await SharedPreferences.getInstance()).setString(_key, body);
 }

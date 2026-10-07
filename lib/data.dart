@@ -11,7 +11,7 @@ import 'store.dart';
 import 'track.dart';
 
 export 'cloud.dart' show Cloud;
-export 'location.dart' show LocationShareResult;
+export 'location.dart' show LocationShareResult, currentPosition;
 export 'model.dart';
 export 'track.dart';
 
@@ -106,6 +106,47 @@ class TripState extends ChangeNotifier {
   final logs = <LogEntry>[];
   bool dark = true;
 
+  /// Grup yang pernah kubuat di HP ini, termasuk yang sudah kutinggalkan.
+  final createdGroups = <CreatedGroupRef>[];
+
+  /// Identitasku. Kosong = belum pernah diisi, Shell menampilkan layar awal.
+  String myName = '';
+  String myPlat = '';
+  String myHp = '';
+
+  void setIdentity(
+      {required String name, required String plat, String? hp}) {
+    myName = name.trim();
+    myPlat = plat.trim().toUpperCase();
+    if (hp != null) myHp = hp.replaceAll(RegExp(r'[^0-9+]'), '');
+    // Ikut diperbarui di grup yang sudah kuikuti — nomor HP terutama: tanpa
+    // ini, orang yang mengisinya belakangan tidak bisa ditelepon saat SOS.
+    for (final g in groups) {
+      final me = g.members.where((m) => m.uid != null && m.uid == myUid);
+      for (final m in me) {
+        m
+          ..name = myName
+          ..plat = myPlat
+          ..hp = myHp;
+      }
+      if (g.onCloud && me.isNotEmpty) {
+        _guard(
+            'Identitas gagal diperbarui di "${g.name}"',
+            () => _cloud!.putMyIdentity(g.gid!,
+                name: myName, plat: myPlat, hp: myHp));
+      }
+    }
+    _persist();
+    notifyListeners();
+  }
+
+  /// Tebakan nama untuk pengguna lama yang sudah punya grup sebelum layar
+  /// awal ada: baris anggotaku sendiri di grup mana pun.
+  Member? get guessMe => groups
+      .expand((g) => g.members)
+      .where((m) => m.uid != null && m.uid == myUid)
+      .firstOrNull;
+
   /// Anggota yang posisinya diketahui dari server. Semua hitungan rombongan —
   /// leader, sweeper, rentang — memakai daftar ini saja.
   final riders = <Rider>[];
@@ -145,7 +186,14 @@ class TripState extends ChangeNotifier {
     sosUid = null;
     clearRoute();
 
+    createdGroups.clear();
     final saved = await loadState();
+    // Di luar syarat "ada grup": road captain yang keluar dari semua grupnya
+    // justru paling butuh daftar ini untuk masuk lagi.
+    if (saved != null) createdGroups.addAll(saved.created);
+    myName = saved?.myName ?? '';
+    myPlat = saved?.myPlat ?? '';
+    myHp = saved?.myHp ?? '';
     if (saved != null && saved.groups.isNotEmpty) {
       groups.addAll(saved.groups);
       logs.addAll(saved.logs);
@@ -276,6 +324,7 @@ class TripState extends ChangeNotifier {
       await cloud.createGroup(g);
       if (g.hasRoute) await cloud.putRoute(g);
       _watch(g.gid!);
+      _rememberCreated(g);
       _log('Grup "${g.name}" terdaftar di server',
           'Kodenya sudah bisa dibagikan ke anggota', kOk);
     } catch (e) {
@@ -308,6 +357,9 @@ class TripState extends ChangeNotifier {
       _trackSub?.cancel();
       _trackSub = null;
       mateTracks.clear();
+      _chatSub?.cancel();
+      _chatSub = null;
+      chat.clear();
       _timer?.cancel();
       _timer = null;
       clearRoute();
@@ -335,6 +387,8 @@ class TripState extends ChangeNotifier {
     _sosSub = null;
     _trackSub?.cancel();
     _trackSub = null;
+    _chatSub?.cancel();
+    _chatSub = null;
     for (final s in _subs) {
       s.cancel();
     }
@@ -348,6 +402,10 @@ class TripState extends ChangeNotifier {
         logs: logs,
         dark: dark,
         tracks: _tracks,
+        created: createdGroups,
+        myName: myName,
+        myPlat: myPlat,
+        myHp: myHp,
       ));
 
   // ── Grup ──────────────────────────────────────────────────────────────────
@@ -412,6 +470,10 @@ class TripState extends ChangeNotifier {
     _trackSub?.cancel();
     _trackSub = null;
     mateTracks.clear();
+    _chatSub?.cancel();
+    _chatSub = null;
+    chat.clear();
+    _chatSeenMs = DateTime.now().millisecondsSinceEpoch;
     _livePos.clear();
     sosUid = null;
     sosAt = null;
@@ -468,6 +530,10 @@ class TripState extends ChangeNotifier {
       applyMateTracks,
       onError: (Object e) => debugPrint('cloud: feed jejak gagal ($e)'),
     );
+    _chatSub = cloud.watchChat(g.gid!).listen(
+      applyChat,
+      onError: (Object e) => debugPrint('cloud: feed obrolan gagal ($e)'),
+    );
     // Status "hilang" bergantung pada umur data, jadi harus dihitung ulang
     // walau tidak ada kiriman baru — kalau tidak, rider yang mati sinyalnya
     // akan terlihat aman selamanya.
@@ -512,17 +578,34 @@ class TripState extends ChangeNotifier {
       sosUid = urut.first.key;
       sosAt = DateTime.fromMillisecondsSinceEpoch(urut.first.value);
     }
-    if (sosUid != sebelum && sosUid != null && sosUid != myUid) {
-      final nama = active.members
-              .where((m) => m.uid == sosUid)
-              .firstOrNull
-              ?.name ??
-          'Seorang anggota';
-      _log('$nama minta bantuan', 'Buka tab SOS untuk lokasinya', kBad);
+    if (sosUid != sebelum) {
+      // SOS sebelumnya selesai (atau tergeser yang lebih dulu): alarm berhenti.
+      if (sebelum != null) {
+        onSosEnd?.call();
+        if (sosUid == null && sebelum != myUid) {
+          _log('SOS ${_nama(sebelum)} sudah ditangani', 'Masalah teratasi', kOk);
+        }
+      }
+      if (sosUid != null && sosUid != myUid) {
+        final nama = _nama(sosUid!);
+        _log('$nama minta bantuan', 'Buka tab SOS untuk lokasinya', kBad);
+        // Alarm di HP semua anggota lain — termasuk saat layar mati, selama
+        // perekaman jalan (layanan foreground menjaga app tetap hidup).
+        onSosAlert?.call(nama);
+      }
     }
     _relabelLive(DateTime.now());
     notifyListeners();
   }
+
+  String _nama(String uid) =>
+      activeOrNull?.members.where((m) => m.uid == uid).firstOrNull?.name ??
+      'Seorang anggota';
+
+  /// Dipasang main.dart ke alarm sirene. Callback, bukan pemutar langsung,
+  /// supaya berkas ini tetap bisa dites tanpa plugin audio.
+  void Function(String nama)? onSosAlert;
+  void Function()? onSosEnd;
 
   /// Masukkan posisi seolah datang dari server. Hanya untuk tes — jalur
   /// aslinya butuh Firebase hidup, dan tanpa seam ini bug "rombongan tidak
@@ -606,6 +689,100 @@ class TripState extends ChangeNotifier {
                   : r.behindKm > 3.2
                       ? RiderStatus.tertinggal
                       : RiderStatus.aman;
+    }
+  }
+
+  // ── Obrolan ───────────────────────────────────────────────────────────────
+
+  StreamSubscription<List<ChatMsg>>? _chatSub;
+
+  /// Obrolan grup aktif, terlama dulu.
+  final chat = <ChatMsg>[];
+
+  /// Pesan orang lain yang lebih baru dari ini dihitung belum dibaca. Mulai
+  /// dari saat grupnya dibuka, jadi riwayat lama tidak menyala sebagai baru.
+  int _chatSeenMs = 0;
+
+  int get chatUnread =>
+      chat.where((m) => m.uid != myUid && m.atMs > _chatSeenMs).length;
+
+  void markChatSeen() {
+    if (chatUnread == 0) return;
+    // Sampai pesan terbaru, bukan sampai jam HP: waktu pesan dari jam server,
+    // dan HP yang jamnya terlambat akan terus melihat pesan "belum dibaca".
+    _chatSeenMs = math.max(DateTime.now().millisecondsSinceEpoch,
+        chat.map((m) => m.atMs).reduce(math.max));
+    notifyListeners();
+  }
+
+  /// Mode walkie-talkie: pesan suara baru dari anggota lain langsung diputar.
+  bool autoVoice = false;
+
+  void setAutoVoice(bool on) {
+    autoVoice = on;
+    notifyListeners();
+  }
+
+  /// Dipasang oleh main.dart. Sengaja callback, bukan memanggil pemutar
+  /// langsung: berkas ini harus bisa dites tanpa plugin audio.
+  void Function(ChatMsg)? onNewVoice;
+
+  @visibleForTesting
+  void applyChat(List<ChatMsg> masuk) {
+    final lama = chat.map((m) => m.key).toSet();
+    final pertama = chat.isEmpty;
+    chat
+      ..clear()
+      ..addAll(masuk);
+    // Snapshot pertama itu riwayat — memutar semuanya sekaligus kacau.
+    if (!pertama && autoVoice) {
+      for (final m in masuk) {
+        if (m.isVoice && m.uid != myUid && !lama.contains(m.key)) {
+          onNewVoice?.call(m);
+        }
+      }
+    }
+    notifyListeners();
+  }
+
+  /// Namaku di grup aktif, untuk label pesan.
+  String get _myChatName =>
+      activeOrNull?.members.where((m) => m.uid == myUid).firstOrNull?.name ??
+      'Anggota';
+
+  /// Null kalau terkirim, atau pesan kesalahan.
+  Future<String?> sendChat(String text) async {
+    final t = text.trim();
+    if (t.isEmpty) return null;
+    final isi = t.length > 1000 ? t.substring(0, 1000) : t;
+    return _sendTo(
+        (cloud, gid) => cloud.sendChat(gid, name: _myChatName, text: isi));
+  }
+
+  Future<String?> sendVoice(List<int> bytes, int sec) =>
+      _sendTo((cloud, gid) =>
+          cloud.sendVoice(gid, name: _myChatName, bytes: bytes, sec: sec));
+
+  Future<Uint8List?> fetchVoice(String key) async {
+    final g = activeOrNull;
+    final cloud = _cloud;
+    if (g == null || !g.onCloud || cloud == null || !cloud.ready) return null;
+    return cloud.fetchVoice(g.gid!, key);
+  }
+
+  Future<String?> _sendTo(Future<void> Function(Cloud, String) send) async {
+    final g = activeOrNull;
+    final cloud = _cloud;
+    if (g == null || !g.onCloud) return 'Grup ini belum ada di server.';
+    if (cloud == null || !cloud.ready) {
+      return cloud?.error ?? 'Server tidak tersambung.';
+    }
+    try {
+      await send(cloud, g.gid!);
+      return null;
+    } catch (e) {
+      debugPrint('cloud: kirim pesan gagal ($e)');
+      return 'Pesan gagal terkirim. Cek sinyal lalu coba lagi.';
     }
   }
 
@@ -737,6 +914,7 @@ class TripState extends ChangeNotifier {
         Member(
           name: you.name,
           plat: you.plat,
+          hp: you.hp,
           role: 'RC',
           // Grup di server: kuncinya wajib uid Firebase, karena Rules menuntut
           // baris RC berada di members/{auth.uid}. Grup lokal: kunci apa pun
@@ -792,21 +970,80 @@ class TripState extends ChangeNotifier {
     if (joined.onCloud) _watch(joined.gid!);
   }
 
+  /// Masuk lagi ke grup yang pernah kubuat lalu kutinggalkan. Null kalau
+  /// berhasil, atau pesan kesalahan.
+  Future<String?> rejoinCreated(CreatedGroupRef c) async {
+    final ada = groups.where((g) => g.gid == c.gid).firstOrNull;
+    if (ada != null) {
+      setActive(ada.id);
+      return null;
+    }
+    try {
+      await importGroup(
+        TripGroup(
+            gid: c.gid, id: '', name: c.name, club: c.club, when: DateTime.now()),
+        you: Member(name: c.myName, plat: c.myPlat, role: 'RIDER', hp: myHp),
+      );
+    } on StateError catch (e) {
+      return e.message;
+    } catch (e) {
+      return Cloud.isPermissionDenied(e)
+          ? 'Server menolak. Grupnya mungkin sudah dihapus.'
+          : 'Gagal masuk lagi. Cek sinyal lalu coba lagi.';
+    }
+    c.leftAt = null;
+    _persist();
+    notifyListeners();
+    return null;
+  }
+
+  void _rememberCreated(TripGroup g) {
+    if (g.gid == null || createdGroups.any((c) => c.gid == g.gid)) return;
+    final me = g.members.where((m) => m.uid == myUid).firstOrNull;
+    createdGroups.add(CreatedGroupRef(
+      gid: g.gid!,
+      name: g.name,
+      club: g.club,
+      createdAt: DateTime.now(),
+      myName: me?.name ?? 'Road Captain',
+      myPlat: me?.plat ?? '',
+    ));
+  }
+
   /// Hapus dari HP ini. Road captain juga menghapusnya di server; anggota biasa
   /// hanya keluar dari grup, karena Rules melarangnya menghapus grup orang.
-  Future<void> deleteGroup(String id) async {
+  ///
+  /// [leaveOnly]: road captain keluar TANPA menghapus grup. Di server dia tetap
+  /// `rcUid`, jadi bisa masuk lagi lewat [rejoinCreated].
+  Future<void> deleteGroup(String id, {bool leaveOnly = false}) async {
     final g = groups.where((e) => e.id == id).firstOrNull;
     final cloud = _cloud;
+    final hapus = g != null && amRc(g) && !leaveOnly;
+
+    // Berhenti mengirim posisi ke grup yang ditinggalkan. Kalau tidak, GPS
+    // terus menulis ke sana dan semuanya ditolak server.
+    if (g != null && g.onCloud && _sharer?.sharingGid == g.gid) {
+      await _sharer?.stop();
+    }
 
     if (g != null && g.onCloud && cloud != null && cloud.ready) {
       final me = g.members.where((m) => m.uid == cloud.uid).firstOrNull;
       await _guard('Gagal memperbarui server', () async {
-        if (amRc(g)) {
+        if (hapus) {
           await cloud.deleteGroup(g);
         } else if (me != null) {
           await cloud.removeMember(g, me);
         }
       });
+    }
+
+    final c = createdGroups.where((c) => c.gid == g?.gid).firstOrNull;
+    if (c != null) {
+      if (hapus) {
+        createdGroups.remove(c);
+      } else {
+        c.leftAt = DateTime.now();
+      }
     }
 
     groups.removeWhere((e) => e.id == id);
@@ -837,6 +1074,11 @@ class TripState extends ChangeNotifier {
     if (name != null) g.name = name.trim();
     if (club != null) g.club = club.trim();
     if (when != null) g.when = when;
+    for (final c in createdGroups.where((c) => c.gid == g.gid)) {
+      c
+        ..name = g.name
+        ..club = g.club;
+    }
     _persist();
     notifyListeners();
     if (g.onCloud) {
@@ -896,23 +1138,47 @@ class TripState extends ChangeNotifier {
     _pushMembers(g, m);
   }
 
-  void removeMember(TripGroup g, Member m) {
-    g.members.remove(m);
-    if (g.id == activeId) _activate();
-    _persist();
-    notifyListeners();
+  /// Keluarkan anggota. Null kalau berhasil, atau pesan kesalahan.
+  ///
+  /// Grup di server: server DULU, baru HP ini — sama seperti Keluarr. Dulu
+  /// urutannya terbalik, dan kalau server gagal namanya terlanjur masuk daftar
+  /// "dicekal" padahal di server dia tidak pernah dicekal; RC mengira sudah
+  /// beres, orangnya tetap bisa masuk lagi. Grup lokal langsung dihapus.
+  Future<String?> removeMember(TripGroup g, Member m) async {
+    // Dikeluarkan orang lain = dicekal, kalau tidak dia tinggal mendaftar
+    // ulang pakai kode yang masih dia pegang. Keluar sendiri tidak dicekal
+    // supaya bisa gabung lagi.
+    final dikeluarkan = m.uid != myUid;
     if (g.onCloud && m.uid != null) {
-      // Dikeluarkan orang lain = dicekal, kalau tidak dia tinggal mendaftar
-      // ulang pakai kode yang masih dia pegang. Keluar sendiri tidak dicekal
-      // supaya bisa gabung lagi.
-      final dikeluarkan = m.uid != myUid;
+      try {
+        await (serverRemove ?? _cloudRemove)(g, m, ban: dikeluarkan);
+      } catch (e) {
+        debugPrint('cloud: keluarkan ${m.uid} gagal ($e)');
+        return 'Gagal mengeluarkan ${m.name}. Cek sinyal lalu coba lagi.';
+      }
       // Namanya dicatat supaya cekalan ini bisa dibatalkan lagi. Tanpa ini
       // satu kesalahan mengeluarkan orang jadi permanen: server hanya
       // menyimpan uid-nya, dan uid tidak bisa dikenali manusia.
       if (dikeluarkan) g.banned[m.uid!] = m.name;
-      _guard('Anggota gagal dihapus di server',
-          () => _cloud!.removeMember(g, m, ban: dikeluarkan));
     }
+    g.members.remove(m);
+    if (g.id == activeId) _activate();
+    _persist();
+    notifyListeners();
+    return null;
+  }
+
+  /// Pengganti jalur server untuk tes — Firebase tidak ada di lingkungan tes.
+  @visibleForTesting
+  Future<void> Function(TripGroup g, Member m, {required bool ban})?
+      serverRemove;
+
+  Future<void> _cloudRemove(TripGroup g, Member m, {required bool ban}) {
+    final cloud = _cloud;
+    if (cloud == null || !cloud.ready) {
+      throw StateError(cloud?.error ?? 'Server tidak tersambung.');
+    }
+    return cloud.removeMember(g, m, ban: ban);
   }
 
   /// Batalkan cekalan supaya dia bisa gabung lagi pakai kode yang sama.
@@ -1056,25 +1322,51 @@ class TripState extends ChangeNotifier {
     final g = active;
     if (g.onCloud) {
       _guard('SOS gagal dikirim ke anggota lain', () => _cloud!.putSos(g.gid!));
+      // Ikut ke obrolan dengan tautan peta: tercatat di riwayat, dan bisa
+      // langsung dibuka di Google Maps oleh siapa pun yang mau menjemput.
+      final at = me.pos;
+      sendChat('🆘 SOS — ${me.name} butuh bantuan! Lokasi: '
+          'https://maps.google.com/?q=${at.latitude},${at.longitude}');
     }
   }
 
-  void clearSos() {
+  /// Tandai SOS aktif sudah teratasi. Null kalau berhasil, atau pesan
+  /// kesalahan. Siapa pun anggotanya boleh — yang sampai duluan ke lokasi.
+  ///
+  /// Server dulu, baru HP ini: kalau dibalik dan server gagal, SOS hilang di
+  /// HP ini saja sementara anggota lain masih mendengar alarm.
+  Future<String?> clearSos() async {
     final g = active;
     final uid = sosUid;
+    if (uid == null) return null;
+    if (g.onCloud) {
+      try {
+        await (serverClearSos ?? _cloudClearSos)(g.gid!, uid);
+      } catch (e) {
+        debugPrint('cloud: tutup SOS gagal ($e)');
+        return 'Gagal menandai teratasi. Cek sinyal lalu coba lagi.';
+      }
+    }
     sosUid = null;
     sosAt = null;
-    _log('SOS ditutup', 'Ditandai sudah ditangani', kOk);
+    _log('SOS ditutup', 'Ditandai masalah teratasi', kOk);
+    onSosEnd?.call();
     _relabelLive(DateTime.now());
     _persist();
     notifyListeners();
-    // Rules mengizinkan ini hanya untuk yang bersangkutan atau road captain.
-    // Kalau bukan keduanya, penulisannya ditolak dan tanda SOS kembali muncul
-    // dari server — itu benar: bukan haknya menutup SOS orang lain.
-    if (g.onCloud && uid != null) {
-      _guard('SOS gagal ditutup di server',
-          () => _cloud!.clearSos(g.gid!, uid));
+    return null;
+  }
+
+  /// Pengganti jalur server untuk tes.
+  @visibleForTesting
+  Future<void> Function(String gid, String uid)? serverClearSos;
+
+  Future<void> _cloudClearSos(String gid, String uid) {
+    final cloud = _cloud;
+    if (cloud == null || !cloud.ready) {
+      throw StateError(cloud?.error ?? 'Server tidak tersambung.');
     }
+    return cloud.clearSos(gid, uid);
   }
 }
 

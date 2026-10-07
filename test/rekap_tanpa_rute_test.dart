@@ -11,6 +11,8 @@ void main() {
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
     await trip.init();
+    // Layar nama di awal dilewati; alurnya diuji sendiri di onboard_test.
+    trip.myName = 'Penguji';
   });
   tearDown(trip.pause);
 
